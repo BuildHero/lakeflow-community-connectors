@@ -97,7 +97,10 @@ def build_tba_authorization_header(
     header_str = ", ".join(
         f'{k}="{_percent_encode(v)}"' for k, v in header_params.items()
     )
-    return f'OAuth realm="{account_id}", {header_str}'
+    # NetSuite expects the OAuth realm to be the account ID in uppercase,
+    # regardless of how the user entered it (e.g. "1234567_sb1" -> "1234567_SB1").
+    # This is independent of the hostname, which stays lowercase (see __init__).
+    return f'OAuth realm="{account_id.upper()}", {header_str}'
 
 
 def request_with_retry(

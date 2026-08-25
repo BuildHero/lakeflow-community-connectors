@@ -16,17 +16,24 @@ Each test targets a specific property of the fallback:
    requested" 400 is left alone and propagates as-is.
 """
 
-from urllib.parse import parse_qs, urlsplit
+import base64
+import hashlib
+import hmac
+from urllib.parse import parse_qs, quote, urlsplit
 from unittest.mock import MagicMock
 
 import pytest
 
+from databricks.labs.community_connector.sources.netsuite import netsuite_utils
 from databricks.labs.community_connector.sources.netsuite.netsuite import (
     NetsuiteLakeflowConnect,
     _unsupported_column_from_error,
 )
 from databricks.labs.community_connector.sources.netsuite.netsuite_schemas import (
     VENDOR_BILL_COLUMNS,
+)
+from databricks.labs.community_connector.sources.netsuite.netsuite_utils import (
+    build_tba_authorization_header,
 )
 
 # Exact wording NetSuite returned live against a non-OneWorld sandbox
@@ -297,3 +304,116 @@ def test_capped_partial_window_below_cluster_still_resumes_mid_window(conn):
     assert end_offset == {"cursor": "2026-01-01T00:00:01Z"}
     # Only a single page fetched -- the uncapped re-drain path was not taken.
     assert conn._session.request.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# TBA (OAuth 1.0a) signing -- deterministic unit coverage
+# ---------------------------------------------------------------------------
+
+_FAKE_NONCE = "deadbeefdeadbeefdeadbeefdeadbeef"
+_FAKE_TIMESTAMP = 1750000000
+
+
+def _expected_tba_signature(
+    *,
+    method: str,
+    base_url: str,
+    query_params: list[tuple[str, str]],
+    consumer_key: str,
+    consumer_secret: str,
+    token_id: str,
+    token_secret: str,
+    timestamp: int = _FAKE_TIMESTAMP,
+    nonce: str = _FAKE_NONCE,
+) -> str:
+    """Independently recompute the expected OAuth1/HMAC-SHA256 signature
+    straight from RFC 5849 primitives -- deliberately not by calling
+    ``build_tba_authorization_header`` or its internal helpers -- so this
+    catches the exact class of bug fixed in b41f2aa (query-string params
+    omitted from the signature base string)."""
+    oauth_params = {
+        "oauth_consumer_key": consumer_key,
+        "oauth_token": token_id,
+        "oauth_signature_method": "HMAC-SHA256",
+        "oauth_timestamp": str(timestamp),
+        "oauth_nonce": nonce,
+        "oauth_version": "1.0",
+    }
+    all_params = list(oauth_params.items()) + query_params
+    encoded_params = sorted(
+        (quote(k, safe="~"), quote(v, safe="~")) for k, v in all_params
+    )
+    normalized = "&".join(f"{k}={v}" for k, v in encoded_params)
+    base_string = "&".join(
+        [method.upper(), quote(base_url, safe="~"), quote(normalized, safe="~")]
+    )
+    signing_key = f"{quote(consumer_secret, safe='~')}&{quote(token_secret, safe='~')}".encode()
+    return base64.b64encode(
+        hmac.new(signing_key, base_string.encode("utf-8"), hashlib.sha256).digest()
+    ).decode("utf-8")
+
+
+@pytest.fixture
+def _frozen_tba_nonce_and_clock(monkeypatch):
+    """Freeze ``time.time`` and ``secrets.token_hex`` so the signature is
+    deterministic and can be independently recomputed by the test."""
+    monkeypatch.setattr(netsuite_utils.time, "time", lambda: _FAKE_TIMESTAMP)
+    monkeypatch.setattr(netsuite_utils.secrets, "token_hex", lambda n: _FAKE_NONCE)
+
+
+def test_build_tba_authorization_header_signs_query_params(
+    _frozen_tba_nonce_and_clock,
+):
+    """limit/offset query params must be part of the signed base string, and
+    the resulting signature must match an independently-computed value --
+    regression coverage for the base-string bug fixed in b41f2aa (query
+    params were previously omitted). Also covers the realm-uppercasing fix:
+    the account ID is entered lowercase but the realm must be uppercase."""
+    base_url = "https://1234567-sb1.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql"
+    url = f"{base_url}?limit=1000&offset=200"
+
+    header = build_tba_authorization_header(
+        method="POST",
+        url=url,
+        account_id="1234567_sb1",
+        consumer_key="fake-consumer-key",
+        consumer_secret="fake-consumer-secret",
+        token_id="fake-token-id",
+        token_secret="fake-token-secret",
+    )
+
+    expected_sig = _expected_tba_signature(
+        method="POST",
+        base_url=base_url,
+        query_params=[("limit", "1000"), ("offset", "200")],
+        consumer_key="fake-consumer-key",
+        consumer_secret="fake-consumer-secret",
+        token_id="fake-token-id",
+        token_secret="fake-token-secret",
+    )
+
+    assert f'oauth_signature="{quote(expected_sig, safe="~")}"' in header
+    # Realm is the account ID, uppercased -- independent of the (lowercase)
+    # hostname derived from the same account_id.
+    assert header.startswith('OAuth realm="1234567_SB1"')
+
+
+def test_build_tba_authorization_header_signature_changes_with_query_params(
+    _frozen_tba_nonce_and_clock,
+):
+    """Changing limit/offset must change the signature -- proves they are
+    actually part of what's signed, not merely present on the URL."""
+    base_url = "https://1234567-sb1.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql"
+    kwargs = dict(
+        method="POST",
+        account_id="1234567_sb1",
+        consumer_key="fake-consumer-key",
+        consumer_secret="fake-consumer-secret",
+        token_id="fake-token-id",
+        token_secret="fake-token-secret",
+    )
+
+    header_a = build_tba_authorization_header(url=f"{base_url}?limit=1000&offset=200", **kwargs)
+    header_b = build_tba_authorization_header(url=f"{base_url}?limit=1&offset=0", **kwargs)
+
+    assert header_a != header_b
