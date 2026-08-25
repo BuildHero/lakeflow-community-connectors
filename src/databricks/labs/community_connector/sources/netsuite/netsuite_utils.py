@@ -13,7 +13,7 @@ import hmac
 import secrets
 import time
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -45,13 +45,21 @@ def build_tba_authorization_header(
     """Build the ``Authorization: OAuth ...`` header for one TBA request.
 
     Implements the OAuth 1.0a-style HMAC-SHA256 signing scheme NetSuite
-    requires for Token-Based Authentication: the signature covers the
-    HTTP method, the base URL (no query string), and the sorted set of
-    oauth_* parameters (which does NOT include any query-string params
-    like ``limit``/``offset`` -- NetSuite's TBA signature base string is
-    computed over the base request URL only).
+    requires for Token-Based Authentication (RFC 5849). Per RFC 5849
+    ss3.4.1.3.2, the signature's normalized parameter string is built from
+    *all* protocol (``oauth_*``) parameters **and** every query-string
+    parameter on the request URL (``limit``/``offset`` for SuiteQL calls)
+    -- not just the oauth_* set. The request body is JSON here, not
+    ``application/x-www-form-urlencoded``, so per the same RFC section
+    body parameters are correctly excluded; only the query string and the
+    oauth_* params are signed. The base string URI (the second signature
+    component) still excludes the query string -- only the normalized
+    parameter string carries it.
     """
-    base_url = url.split("?", 1)[0]
+    parsed = urlsplit(url)
+    base_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    query_params = parse_qsl(parsed.query, keep_blank_values=True)
+
     oauth_params = {
         "oauth_consumer_key": consumer_key,
         "oauth_token": token_id,
@@ -61,10 +69,14 @@ def build_tba_authorization_header(
         "oauth_version": "1.0",
     }
 
-    sorted_params = "&".join(
-        f"{_percent_encode(k)}={_percent_encode(v)}"
-        for k, v in sorted(oauth_params.items())
+    # RFC 5849 ss3.4.1.3.2: combine oauth_* params with every query-string
+    # param, then sort by (encoded key, encoded value) -- not just by key --
+    # so parameters that repeat with the same name sort deterministically.
+    all_params = list(oauth_params.items()) + query_params
+    encoded_params = sorted(
+        (_percent_encode(k), _percent_encode(v)) for k, v in all_params
     )
+    sorted_params = "&".join(f"{k}={v}" for k, v in encoded_params)
     base_string = "&".join(
         [
             method.upper(),

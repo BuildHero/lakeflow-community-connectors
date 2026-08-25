@@ -42,8 +42,22 @@ Authorization: OAuth realm="1234567_SB1",
   oauth_signature="<base64_hmac_sha256_signature>"
 ```
 
-The signature base string is `METHOD&url_encode(base_url)&url_encode(sorted_oauth_params)`,
-HMAC-SHA256-signed with key `url_encode(consumer_secret)&url_encode(token_secret)`.
+The signature base string is
+`METHOD&url_encode(base_url)&url_encode(sorted_params)`, HMAC-SHA256-signed
+with key `url_encode(consumer_secret)&url_encode(token_secret)`.
+**`sorted_params` is the RFC 5849 §3.4.1.3.2 normalized parameter string:
+it includes every `oauth_*` parameter *and* every query-string parameter
+on the request** (e.g. `limit`/`offset` on a SuiteQL call) — sorted
+together, not the `oauth_*` params alone. `base_url` (the base string URI)
+still excludes the query string; only the parameter string carries it.
+An earlier version of this doc incorrectly stated that query parameters
+are excluded from the signature — that was wrong and has been corrected
+here (and in `netsuite_utils.py::build_tba_authorization_header`) after a
+task review caught it: signing only the `oauth_*` params would make every
+real SuiteQL call (which always appends `limit`/`offset`) produce an
+invalid signature and get rejected by NetSuite. The request body here is
+JSON, not `application/x-www-form-urlencoded`, so per the same RFC section
+body parameters are correctly excluded from the signature.
 TBA tokens do not expire on a fixed schedule — they remain valid until
 revoked, or until the underlying user/role/integration record changes.
 
