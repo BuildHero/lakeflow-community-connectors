@@ -14,8 +14,9 @@ SuiteQL caps any single query at 100,000 total matching rows (the
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import requests
 from pyspark.sql.types import StructType
@@ -37,10 +38,34 @@ from databricks.labs.community_connector.sources.netsuite.netsuite_utils import 
 _LASTMODIFIEDDATE_FORMAT = DATE_COLUMNS["lastmodifieddate"]
 _ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
+# NetSuite rejects a SELECT column outright (HTTP 400, INVALID_PARAMETER)
+# rather than returning it as null when the column doesn't exist on the
+# account's schema at all -- e.g. ``subsidiary`` on accounts that don't have
+# OneWorld/multi-subsidiary enabled. See netsuite_api_doc.md "Known Quirks"
+# for the live-verified example. Deliberately narrow: only matches SuiteQL's
+# specific "Unknown identifier '<col>'" wording for a column we ourselves
+# requested, so unrelated 400s (bad syntax, permissions, etc.) still raise.
+_UNKNOWN_IDENTIFIER_RE = re.compile(r"Unknown identifier '(\w+)'")
 
-def _select_clause() -> str:
+
+def _unsupported_column_from_error(message: str) -> str | None:
+    """Return the offending column name if ``message`` is SuiteQL's specific
+    "unknown identifier" 400 for one of ``VENDOR_BILL_COLUMNS``, else ``None``.
+    """
+    if "status 400" not in message or "INVALID_PARAMETER" not in message:
+        return None
+    match = _UNKNOWN_IDENTIFIER_RE.search(message)
+    if not match:
+        return None
+    column = match.group(1)
+    return column if column in VENDOR_BILL_COLUMNS else None
+
+
+def _select_clause(exclude: frozenset[str] = frozenset()) -> str:
     parts = []
     for col in VENDOR_BILL_COLUMNS:
+        if col in exclude:
+            continue
         if col in DATE_COLUMNS:
             parts.append(f"TO_CHAR({col}, '{DATE_COLUMNS[col]}') AS {col}")
         else:
@@ -94,6 +119,14 @@ class NetsuiteLakeflowConnect(LakeflowConnect):
         # later edits are picked up by the next trigger with a fresh cap.
         self._init_ts = datetime.now(timezone.utc).strftime(_ISO_FMT)
 
+        # Columns SuiteQL has told us, this run, are not valid identifiers on
+        # this account (e.g. ``subsidiary`` on non-OneWorld accounts -- see
+        # ``_unsupported_column_from_error`` / netsuite_api_doc.md). Populated
+        # lazily on first failure and cached for the life of this instance so
+        # later windows/pages build the query without the column from the
+        # start instead of re-attempting and re-failing every call.
+        self._unsupported_columns: frozenset[str] = frozenset()
+
     # ------------------------------------------------------------------ #
     # Interface methods
     # ------------------------------------------------------------------ #
@@ -143,6 +176,37 @@ class NetsuiteLakeflowConnect(LakeflowConnect):
             offset=offset,
         )
 
+    def _run_query_with_fallback(
+        self,
+        query_builder: Callable[[frozenset[str]], str],
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        """Run a SuiteQL query built by ``query_builder(exclude_columns)``.
+
+        Builds first with whatever columns are already cached as
+        unsupported on this instance (``self._unsupported_columns``, set by
+        an earlier failure this run). If NetSuite still rejects a *new*
+        column as an unknown identifier -- e.g. ``subsidiary`` on accounts
+        without OneWorld/multi-subsidiary enabled, see
+        ``_unsupported_column_from_error`` and netsuite_api_doc.md's "Known
+        Quirks" -- cache it and retry once with it excluded too, so later
+        windows/pages build the query without that column from the start
+        rather than re-attempting and re-failing on every call. Any other
+        error (bad syntax, permissions, rate limiting, ...) is raised
+        unchanged.
+        """
+        query = query_builder(self._unsupported_columns)
+        try:
+            return self._run_query(query, limit=limit, offset=offset)
+        except RuntimeError as exc:
+            column = _unsupported_column_from_error(str(exc))
+            if column is None or column in self._unsupported_columns:
+                raise
+            self._unsupported_columns = self._unsupported_columns | {column}
+            query = query_builder(self._unsupported_columns)
+            return self._run_query(query, limit=limit, offset=offset)
+
     def _peek_oldest_cursor(self) -> str | None:
         """Auto-discover the oldest ``lastmodifieddate`` among vendor bills.
 
@@ -151,11 +215,14 @@ class NetsuiteLakeflowConnect(LakeflowConnect):
         SuiteQL query always has a bounded lower cursor (see
         implement-connector's "Strategy A" auto-discovery guidance).
         """
-        query = (
-            f"SELECT {_select_clause()} FROM transaction "
-            "WHERE type = 'VendBill' ORDER BY lastmodifieddate ASC"
-        )
-        body = self._run_query(query, limit=1, offset=0)
+
+        def build(exclude: frozenset[str]) -> str:
+            return (
+                f"SELECT {_select_clause(exclude)} FROM transaction "
+                "WHERE type = 'VendBill' ORDER BY lastmodifieddate ASC"
+            )
+
+        body = self._run_query_with_fallback(build, limit=1, offset=0)
         items = body.get("items") or []
         if items:
             return items[0].get("lastmodifieddate")
@@ -186,13 +253,14 @@ class NetsuiteLakeflowConnect(LakeflowConnect):
         window_end_dt = min(window_end_dt, init_dt)
         window_end = window_end_dt.strftime(_ISO_FMT)
 
-        query = (
-            f"SELECT {_select_clause()} FROM transaction "
-            "WHERE type = 'VendBill' "
-            f"AND lastmodifieddate >= TO_DATE('{since}', '{_LASTMODIFIEDDATE_FORMAT}') "
-            f"AND lastmodifieddate <  TO_DATE('{window_end}', '{_LASTMODIFIEDDATE_FORMAT}') "
-            "ORDER BY lastmodifieddate ASC"
-        )
+        def build_window_query(exclude: frozenset[str]) -> str:
+            return (
+                f"SELECT {_select_clause(exclude)} FROM transaction "
+                "WHERE type = 'VendBill' "
+                f"AND lastmodifieddate >= TO_DATE('{since}', '{_LASTMODIFIEDDATE_FORMAT}') "
+                f"AND lastmodifieddate <  TO_DATE('{window_end}', '{_LASTMODIFIEDDATE_FORMAT}') "
+                "ORDER BY lastmodifieddate ASC"
+            )
 
         records: list[dict[str, Any]] = []
         offset = 0
@@ -206,7 +274,9 @@ class NetsuiteLakeflowConnect(LakeflowConnect):
                     "SuiteQL offset exceeded the 100,000-row ceiling within "
                     "one window; reduce the 'window_seconds' table option."
                 )
-            body = self._run_query(query, limit=page_size, offset=offset)
+            body = self._run_query_with_fallback(
+                build_window_query, limit=page_size, offset=offset
+            )
             batch = body.get("items") or []
             if not batch:
                 window_drained = True

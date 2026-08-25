@@ -96,6 +96,18 @@ individual line items live in a separate NetSuite table
 (`transactionline`) and are not currently ingested by this connector; this
 is a deliberate scope decision for the initial release, not an oversight.
 
+**`subsidiary` may come back `null` on non-OneWorld accounts.** On
+NetSuite accounts without OneWorld/multi-subsidiary enabled, `subsidiary`
+isn't a valid SuiteQL column at all (verified live: NetSuite rejects it
+with an HTTP 400 "Unknown identifier" error rather than returning null).
+The connector detects this specific error on first use and automatically
+falls back to omitting `subsidiary` from its query for the rest of that
+run — the column is still declared in the schema, so it's always present
+in output rows, just consistently `null` for accounts where NetSuite
+doesn't support it. OneWorld accounts are unaffected and get real
+subsidiary IDs as before. See `netsuite_api_doc.md` Known Quirks #7 for
+the live-verified details.
+
 Incremental sync uses `lastmodifieddate` with a sliding time window
 (`window_seconds`) to stay under NetSuite's SuiteQL 100,000-row-per-query
 ceiling on large accounts. Deletions/voids of vendor bills are **not**
@@ -198,6 +210,9 @@ setting up a pipeline using the selected source connector code.
 - A `RuntimeError` about the SuiteQL 100,000-row ceiling means
   `window_seconds` is too large for the account's vendor-bill volume in
   that window — lower it.
+- `subsidiary` reading `null` for every record is expected on accounts
+  without OneWorld/multi-subsidiary enabled — see "vendorbill" above. It
+  is not a connector error.
 
 ## References
 

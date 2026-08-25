@@ -138,7 +138,7 @@ against a live schema browse, since none was available):
 | `exchangerate` | `exchangerate` | string (numeric string) | Exchange rate to base currency |
 | `foreigntotal` | `foreigntotal` | string (numeric string) | Bill total in transaction currency. `TBD:` confirm this is the correct total column for `VendBill` vs. `total`/computed-from-lines — could not verify against a live account |
 | `memo` | `memo` | string | Free-text memo |
-| `subsidiary` | `subsidiary` | string (numeric string) | Subsidiary internal ID (OneWorld accounts) |
+| `subsidiary` | `subsidiary` | string (numeric string) | Subsidiary internal ID (OneWorld accounts). **Live-verified (Phase 2):** on accounts without OneWorld/multi-subsidiary enabled, `subsidiary` is not merely null -- SuiteQL rejects it outright as an unknown identifier (HTTP 400). The connector catches this specific error and falls back to omitting the column for the rest of that run; see Known Quirks #7 below and `README.md` |
 | `terms` | `terms` | string (numeric string) | Payment terms internal ID |
 | `postingperiod` | `postingperiod` | string (numeric string) | Accounting period internal ID |
 | `approvalstatus` | `approvalstatus` | string (numeric string) | Approval workflow status, if enabled on the account. `TBD:` null on accounts without bill approvals enabled |
@@ -302,7 +302,41 @@ explicit `timeout` (20s) per `implement-connector`'s API-call best practices.
    posts reference totals being computed from `transactionline.amount`
    sums rather than a single reliable header total column across all
    transaction types; `foreigntotal` is the best single-column candidate
-   found but is marked `TBD:` for live confirmation.
+   found and was marked `TBD:` for live confirmation. **Live-verified
+   (Phase 2):** non-null and present on every sampled real `VendBill`
+   record on the test account. `duedate` and `approvalstatus` were checked
+   the same way and are also reliably populated (the account has bill
+   approvals enabled, so `approvalstatus` is non-null there specifically;
+   an account without approvals enabled is still unverified). Residual
+   doubt: `foreigntotal` being non-null doesn't independently confirm it
+   matches the total NetSuite's UI would display for the same bill (no UI
+   access during verification) — narrowed, not eliminated.
+7. **`subsidiary` is rejected outright, not just null, on non-OneWorld
+   accounts.** Live testing (Phase 2) against a real sandbox account hit an
+   HTTP 400 `INVALID_PARAMETER` — `Unknown identifier 'subsidiary'.
+   Available identifiers are: {transaction=transaction}.` — as soon as
+   `subsidiary` was included in the `SELECT` list, while every other
+   `VENDOR_BILL_COLUMNS` entry queried fine individually. This means
+   `subsidiary` isn't a resolvable SuiteQL identifier on `transaction` at
+   all for accounts without OneWorld/multi-subsidiary enabled (not "column
+   exists but is null" — the reference itself is rejected). Rather than
+   drop `subsidiary` from the schema (losing real data for OneWorld
+   accounts that do have it) or add OneWorld feature-detection at init
+   (more design surface than this PoC needs), the connector catches this
+   specific error — matched narrowly on the "Unknown identifier '<col>'"
+   wording for a column it itself requested, not on 400s generally — and
+   retries the same query with that column dropped from the `SELECT`
+   clause, caching the decision on the connector instance
+   (`self._unsupported_columns`) so later windows/pages build the query
+   without it from the start instead of re-attempting and re-failing every
+   call. See `_run_query_with_fallback` / `_unsupported_column_from_error`
+   in `netsuite.py`. Once excluded, SuiteQL's response simply omits the
+   `subsidiary` key for that record; the framework's own `parse_value`
+   struct-parsing (`libs/utils.py`) already fills any declared-nullable
+   field with `None` when its key is absent, so downstream readers see a
+   consistently-shaped, always-present, null `subsidiary` column rather
+   than a missing key — no new null-representation convention was needed.
+   See `README.md` for the user-facing summary of this behavior.
 
 ## Sources and References
 
