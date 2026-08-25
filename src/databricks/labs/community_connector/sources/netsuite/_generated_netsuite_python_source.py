@@ -1081,46 +1081,57 @@ def register_lakeflow_source(spark):
                     "ORDER BY lastmodifieddate ASC"
                 )
 
-            records: list[dict[str, Any]] = []
-            offset = 0
-            window_drained = False
-            while len(records) < max_records:
-                if offset >= SUITEQL_MAX_OFFSET:
-                    # Row count within this window exceeds SuiteQL's per-query
-                    # ceiling -- narrow window_seconds. See netsuite_api_doc.md
-                    # "100,000-row per-query ceiling" known quirk.
-                    raise RuntimeError(
-                        "SuiteQL offset exceeded the 100,000-row ceiling within "
-                        "one window; reduce the 'window_seconds' table option."
+            def paginate(cap: int | None) -> tuple[list[dict[str, Any]], bool]:
+                paged: list[dict[str, Any]] = []
+                offset = 0
+                while cap is None or len(paged) < cap:
+                    if offset >= SUITEQL_MAX_OFFSET:
+                        # Row count within this window exceeds SuiteQL's per-query
+                        # ceiling -- narrow window_seconds. See netsuite_api_doc.md
+                        # "100,000-row per-query ceiling" known quirk.
+                        raise RuntimeError(
+                            "SuiteQL offset exceeded the 100,000-row ceiling within "
+                            "one window; reduce the 'window_seconds' table option."
+                        )
+                    body = self._run_query_with_fallback(
+                        build_window_query, limit=page_size, offset=offset
                     )
-                body = self._run_query_with_fallback(
-                    build_window_query, limit=page_size, offset=offset
-                )
-                batch = body.get("items") or []
-                if not batch:
-                    window_drained = True
-                    break
+                    batch = body.get("items") or []
+                    if not batch:
+                        return paged, True
 
-                records.extend(batch)
-                offset += len(batch)
+                    paged.extend(batch)
+                    offset += len(batch)
 
-                if not body.get("hasMore"):
-                    window_drained = True
-                    break
+                    if not body.get("hasMore"):
+                        return paged, True
+                return paged, False
 
-            if not records and not window_drained:
-                # Shouldn't happen (loop always sets window_drained on empty
-                # batch / no-more-pages), but guard defensively.
-                window_drained = True
+            records, window_drained = paginate(max_records)
+
+            if not window_drained:
+                # max_records cap hit mid-window. vendorbill is a `cdc` table
+                # (upsert semantics), so client-side truncation to exactly
+                # max_records is normally safe -- the next trigger re-fetches
+                # from the truncation point and Databricks dedups via
+                # primary-key merge.
+                records = records[:max_records]
+                resume_cursor = records[-1]["lastmodifieddate"] if records else since
+
+                # Same-second cursor cluster larger than the cap: every capped
+                # row shares one ``lastmodifieddate``, so the resume cursor
+                # can't advance past ``since`` and the next call would re-fetch
+                # this exact page forever, silently dropping every later row
+                # (see mailchimp.py's identical guard for the sliding-window
+                # pattern). Re-drain the window uncapped instead -- the cap
+                # only trips because of low cardinality mid-window in this
+                # case, and ``window_seconds`` already bounds total volume.
+                if resume_cursor <= since:
+                    records, window_drained = paginate(None)
 
             if window_drained:
                 end_offset = {"cursor": window_end}
             else:
-                # max_records cap hit mid-window. vendorbill is a `cdc` table
-                # (upsert semantics), so client-side truncation to exactly
-                # max_records is safe -- the next trigger re-fetches from the
-                # truncation point and Databricks dedups via primary-key merge.
-                records = records[:max_records]
                 end_offset = {"cursor": records[-1]["lastmodifieddate"]}
 
             if start_offset and start_offset == end_offset:

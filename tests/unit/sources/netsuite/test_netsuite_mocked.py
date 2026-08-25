@@ -16,6 +16,7 @@ Each test targets a specific property of the fallback:
    requested" 400 is left alone and propagates as-is.
 """
 
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import MagicMock
 
 import pytest
@@ -61,6 +62,21 @@ def _items_response(items: list, has_more: bool = False):
 def _query_text(call) -> str:
     """Pull the SuiteQL query text out of a mocked ``session.request`` call."""
     return call.kwargs["json"]["q"]
+
+
+def _paginated_window_response(rows: list[dict]):
+    """Fake ``session.request`` that pages ``rows`` by the request URL's
+    ``limit``/``offset`` query params (as ``run_suiteql`` encodes them)."""
+
+    def fake(method, url, **kwargs):
+        query = parse_qs(urlsplit(url).query)
+        limit = int(query.get("limit", ["1000"])[0])
+        offset = int(query.get("offset", ["0"])[0])
+        page = rows[offset : offset + limit]
+        has_more = offset + limit < len(rows)
+        return _items_response(page, has_more=has_more)
+
+    return fake
 
 
 @pytest.fixture
@@ -217,3 +233,67 @@ def test_unrelated_400_is_not_swallowed(conn):
     # Exactly one attempt -- an unmatched error must not trigger a retry.
     assert conn._session.request.call_count == 1
     assert conn._unsupported_columns == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# Mid-window truncation / same-second cursor cluster (final-review Critical)
+# ---------------------------------------------------------------------------
+
+
+def test_same_second_cluster_larger_than_cap_does_not_stall(conn):
+    """5000 vendor bills sharing one ``lastmodifieddate``, cap=200 -> all rows
+    ingest in one call and the cursor advances past the stalled timestamp.
+
+    Reproduces the mid-window truncation bug: pre-fix, ``records[:max_records]``
+    truncates to a page where every row shares the same ``lastmodifieddate``
+    as ``since``, so ``end_offset == start_offset`` and the next call's
+    "no more data" early-return stalls the cursor forever, silently dropping
+    every row modified after that timestamp. The fix (ported from
+    mailchimp.py's identical sliding-window guard) re-drains the window
+    uncapped when the resume cursor can't advance past ``since``.
+    """
+    conn._init_ts = "2030-01-01T00:00:00Z"
+    stalled_ts = "2026-01-01T00:00:00Z"
+    rows = [
+        {"id": str(i), "tranid": f"VB-{i}", "lastmodifieddate": stalled_ts}
+        for i in range(5000)
+    ]
+    conn._session.request.side_effect = _paginated_window_response(rows)
+
+    iterator, end_offset = conn.read_table(
+        "vendorbill",
+        {"cursor": stalled_ts},
+        {"limit": "1000", "max_records_per_batch": "200", "window_seconds": "86400"},
+    )
+    records = list(iterator)
+
+    assert len(records) == 5000  # nothing dropped despite the cap
+    assert end_offset != {"cursor": stalled_ts}  # no stall
+    assert end_offset["cursor"] > stalled_ts  # cursor advanced past the cluster
+
+
+def test_capped_partial_window_below_cluster_still_resumes_mid_window(conn):
+    """A cap trip whose resume cursor is *older* than the newest rows in the
+    cluster (i.e. it genuinely advances past ``since``) must still truncate
+    and resume mid-window as before -- the uncapped re-drain is only for the
+    stalled case, not a general behavior change."""
+    conn._init_ts = "2030-01-01T00:00:00Z"
+    rows = [
+        {"id": "0", "tranid": "VB-0", "lastmodifieddate": "2026-01-01T00:00:00Z"},
+        {"id": "1", "tranid": "VB-1", "lastmodifieddate": "2026-01-01T00:00:01Z"},
+        {"id": "2", "tranid": "VB-2", "lastmodifieddate": "2026-01-01T00:00:02Z"},
+        {"id": "3", "tranid": "VB-3", "lastmodifieddate": "2026-01-01T00:00:03Z"},
+    ]
+    conn._session.request.side_effect = _paginated_window_response(rows)
+
+    iterator, end_offset = conn.read_table(
+        "vendorbill",
+        {"cursor": "2026-01-01T00:00:00Z"},
+        {"limit": "2", "max_records_per_batch": "2", "window_seconds": "86400"},
+    )
+    records = list(iterator)
+
+    assert len(records) == 2  # capped, not re-drained uncapped
+    assert end_offset == {"cursor": "2026-01-01T00:00:01Z"}
+    # Only a single page fetched -- the uncapped re-drain path was not taken.
+    assert conn._session.request.call_count == 1
