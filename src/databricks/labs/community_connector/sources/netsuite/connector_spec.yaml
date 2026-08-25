@@ -1,0 +1,53 @@
+# NetSuite Community Connector Spec
+# This file defines the specification for the connector including
+# connection parameters and allowlist options.
+
+# ============================================================================
+# Connection Parameters
+# These are provided when creating the Unity Catalog connection.
+# ============================================================================
+display_name: NetSuite
+connection:
+  parameters:
+    - name: account_id
+      type: string
+      required: true
+      description: >
+        NetSuite account ID (e.g. "1234567" or "1234567_SB1" for a
+        sandbox). Used to build the SuiteTalk REST hostname.
+    - name: consumer_key
+      type: string
+      required: true
+      secret: true
+      description: >
+        Consumer key from the NetSuite integration record (Setup >
+        Integration > Manage Integrations) with Token-Based
+        Authentication enabled.
+    - name: consumer_secret
+      type: string
+      required: true
+      secret: true
+      description: >
+        Consumer secret paired with consumer_key.
+    - name: token_id
+      type: string
+      required: true
+      secret: true
+      description: >
+        Access token ID issued for the integration record + user/role
+        (Setup > Users/Roles > Access Tokens).
+    - name: token_secret
+      type: string
+      required: true
+      secret: true
+      description: >
+        Access token secret paired with token_id.
+
+# ============================================================================
+# External Options Allowlist
+# These table-specific options must be included in the externalOptionsAllowList
+# parameter of the UC connection to allow them to be passed through.
+# Use a comma-separated string of option names.
+# If no table-specific options are needed, set to empty string or omit.
+# ============================================================================
+external_options_allowlist: "max_records_per_batch,window_seconds,limit,start_timestamp"
