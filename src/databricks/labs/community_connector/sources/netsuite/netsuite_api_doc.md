@@ -337,6 +337,89 @@ explicit `timeout` (20s) per `implement-connector`'s API-call best practices.
    consistently-shaped, always-present, null `subsidiary` column rather
    than a missing key — no new null-representation convention was needed.
    See `README.md` for the user-facing summary of this behavior.
+8. **`TO_CHAR(..., '...."Z"')`'s "Z" suffix does NOT mean true UTC — live-verified
+   2026-08-27.** This was flagged as an open, never-live-verified question
+   in the final whole-branch review of this connector: `DATE_COLUMNS`
+   wraps `createddate`/`lastmodifieddate` in `TO_CHAR(col, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
+   asserting UTC via the literal `"Z"` suffix, but SuiteQL's `TO_CHAR`
+   renders datetimes in the account's *configured timezone preference*,
+   not necessarily UTC.
+
+   **Methodology.** Queried one vendor bill's `id` and its
+   `TO_CHAR`-formatted `lastmodifieddate` via SuiteQL (the connector's own
+   query shape), then fetched the *same record* via NetSuite's REST record
+   API (`GET /services/rest/record/v1/vendorBill/{id}`), whose
+   `lastModifiedDate` field returns full ISO 8601 with a genuine UTC
+   offset. Compared the two renderings of the same underlying instant.
+   Used an old (2023), presumably-stable record for the comparison to
+   avoid a race against other traffic modifying the record between the two
+   calls.
+
+   **Finding.** The two values disagreed by **~7 hours** (SuiteQL's
+   labeled-`Z` value read ~7 hours *earlier* than the REST API's true-UTC
+   value for the identical record/field) — consistent with the account's
+   preference being set to US Pacific time (PDT, UTC-7, in effect on the
+   sampled date). **The account is NOT UTC; the "Z" suffix is a formatting
+   label, not a genuine UTC guarantee.**
+
+   **Conversion options tried and rejected.** Before treating this as
+   undocumented-only, three candidate SuiteQL timezone-conversion
+   expressions were tested live against the same account, hoping to have
+   SuiteQL itself emit true UTC:
+   - `AT TIME ZONE 'UTC'` — consistently returned HTTP 401
+     `INVALID_LOGIN` (not a syntax-level 400), reproduced twice; the
+     account's normal credentials continued to authenticate fine on the
+     very next unrelated query, ruling out credential/clock-skew causes.
+     Whatever this syntax does on NetSuite's SuiteQL parser, it is not a
+     usable, reliable path.
+   - `SYS_EXTRACT_UTC(CAST(... AS TIMESTAMP))` — HTTP 400 "Invalid or
+     unsupported search."
+   - `NEW_TIME(..., 'PDT', 'UTC')` — HTTP 400 "Invalid or unsupported
+     search."
+
+   None of SuiteQL's Oracle-dialect timezone-conversion functions are
+   supported, so option (a) (ask NetSuite to convert to UTC explicitly) is
+   not available on this account/SuiteQL version.
+
+   **Fix applied.** Rather than rewrite the wire/query date format (which
+   would ripple through every test fixture, the source simulator's
+   corpus/handler, the recorded cassette, and the README's documented
+   cursor shape, for what is fundamentally a labeling-correctness issue,
+   not a data-loss one), the connector's actual functional bug was fixed
+   narrowly: `self._init_ts` (the AvailableNow cursor cap, described in
+   `netsuite.py`) was being computed from Python's real UTC clock
+   (`datetime.now(timezone.utc)`), while every `lastmodifieddate`/`since`
+   cursor value it's compared against is in the account's local,
+   `"Z"`-mislabeled domain established above. Comparing across two
+   different clock domains meant the cap drifted by the account's UTC
+   offset right at the AvailableNow trigger boundary. The fix: fetch "now"
+   *from SuiteQL itself*, in the exact same `TO_CHAR` rendering as
+   `lastmodifieddate` (`SELECT TO_CHAR(CURRENT_DATE, '<same format>') FROM
+   DUAL` — `FROM DUAL` live-verified to work on this account, the same as
+   Oracle SQL, and account-independent of whether any vendor bills exist
+   yet), lazily on the connector instance's first `read_table` call, and
+   cache it (`_fetch_account_now` / `_ensure_init_ts` in `netsuite.py`).
+   This keeps the cap in the *same* clock domain as the cursor it's
+   compared against — correct regardless of what the account's actual
+   offset is, and safe across DST transitions, since it's re-read live per
+   connector instance rather than assumed once from Python's clock.
+
+   **Residual, documented-not-fixed concern.** The wire format itself
+   still emits a literal `"Z"` suffix that is not true UTC. This is safe
+   for the connector's own internal cursor bookkeeping (fixed above), and
+   for a `start_timestamp` table option value, which is compared against
+   the *same* mislabeled domain rather than true UTC (see updated
+   `README.md`). It is **not** safe for a downstream consumer of the
+   ingested `vendorbill` table who reads `lastmodifieddate`/`createddate`
+   and assumes true UTC for their own date arithmetic — they will be off
+   by the account's UTC offset (~7 hours on the sampled sandbox; not
+   assumed fixed, since NetSuite accounts can be configured to any
+   timezone and this could shift the sign/magnitude on a different
+   account). A future batch should consider either surfacing the account's
+   actual timezone/offset as connector metadata, or revisiting the
+   wire-format change (dropping the `"Z"` and documenting the true
+   account-local shape) if that residual mislabeling proves to matter to a
+   real downstream consumer — flagged for follow-up, not resolved here.
 
 ## Sources and References
 

@@ -17,6 +17,12 @@ matches on query params/headers, so it can't express this. This handler:
      NetSuite's actual SuiteQL contract).
   5. Renders the ``{links, count, hasMore, items, offset, totalResults}``
      envelope documented in ``netsuite_api_doc.md``.
+
+Also answers the connector's ``SELECT TO_CHAR(CURRENT_DATE, ...) FROM
+DUAL`` "what time is it" probe (``netsuite.py::_fetch_account_now``) with a
+fixed far-future sentinel timestamp -- simulate mode doesn't need real
+timezone fidelity, just a value safely after every corpus record so
+window-advance tests aren't truncated by it.
 """
 
 from __future__ import annotations
@@ -41,10 +47,25 @@ _CURSOR_FIELD = "lastmodifieddate"
 _SINCE_RE = re.compile(r"lastmodifieddate\s*>=\s*TO_DATE\('([^']+)'")
 _UNTIL_RE = re.compile(r"lastmodifieddate\s*<\s*TO_DATE\('([^']+)'")
 
+# Sentinel "now" for the connector's FROM DUAL probe -- see module
+# docstring. Well after every date in corpus/vendorbill.json (2024-01-01).
+_SIMULATED_NOW = "2099-01-01T00:00:00Z"
+
 
 def suiteql(prep: PreparedRequest, spec: Any, corpus: Any) -> Response:  # noqa: ARG001
     body = _parse_body(prep.body)
     query = body.get("q") or ""
+
+    if "FROM DUAL" in query.upper():
+        payload = {
+            "links": [],
+            "count": 1,
+            "hasMore": False,
+            "items": [{"now_ts": _SIMULATED_NOW}],
+            "offset": 0,
+            "totalResults": 1,
+        }
+        return _build_response(prep, status=200, payload=payload)
 
     since_match = _SINCE_RE.search(query)
     until_match = _UNTIL_RE.search(query)

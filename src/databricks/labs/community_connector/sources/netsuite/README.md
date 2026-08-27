@@ -146,7 +146,7 @@ source-specific options:
 | `window_seconds` | No | Size of the sliding `lastmodifieddate` time window per SuiteQL query, in seconds. Default: `86400` (1 day). Lower this on very high-volume accounts to stay under the 100,000-row SuiteQL query ceiling. |
 | `max_records_per_batch` | No | Maximum records returned per `read_table` call (admission control). Default: `200`. |
 | `limit` | No | SuiteQL page size (`limit` query parameter) used when paginating within a window. Default: `1000`. |
-| `start_timestamp` | No | ISO 8601 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`) to use as the initial lower bound on the very first sync, when no checkpointed offset exists yet. If omitted, the connector auto-discovers the oldest vendor bill's `lastmodifieddate`. |
+| `start_timestamp` | No | ISO-shaped timestamp (`YYYY-MM-DDTHH:MM:SSZ`) to use as the initial lower bound on the very first sync, when no checkpointed offset exists yet. **Despite the trailing `Z`, provide this in the account's own configured timezone, not true UTC** — NetSuite's SuiteQL renders `lastmodifieddate` in the account's timezone preference, live-verified to not always be UTC; see `netsuite_api_doc.md` Known Quirks #8. If omitted, the connector auto-discovers the oldest vendor bill's `lastmodifieddate`. |
 
 ## Data Type Mapping
 
@@ -154,7 +154,7 @@ source-specific options:
 |---|---|---|
 | Numeric string (e.g. `id`, `entity`, `currency`) | Long | NetSuite returns all values — including numbers — as JSON strings; the pipeline converts them. |
 | Numeric string (e.g. `exchangerate`, `foreigntotal`) | Double | Same string-to-numeric conversion. |
-| Date/timestamp string | String (ISO 8601) | The connector explicitly formats `trandate`, `duedate`, `createddate`, and `lastmodifieddate` as ISO 8601 text in its query, to avoid NetSuite's account-locale date format ambiguity. |
+| Date/timestamp string | String (ISO 8601-shaped) | The connector explicitly formats `trandate`, `duedate`, `createddate`, and `lastmodifieddate` as ISO 8601-shaped text in its query, to avoid NetSuite's account-locale date format ambiguity. **`createddate`/`lastmodifieddate`'s trailing `Z` is a formatting label, not a guarantee of true UTC** — live-verified (2026-08-25) to reflect the account's configured timezone preference instead; see `netsuite_api_doc.md` Known Quirks #8. |
 | Plain string | String | — |
 
 ## How to Run

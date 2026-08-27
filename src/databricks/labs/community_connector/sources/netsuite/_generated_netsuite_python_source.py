@@ -680,6 +680,17 @@ def register_lakeflow_source(spark):
 
     # Columns whose SuiteQL value must be normalized via TO_CHAR(..., 'YYYY-MM-DD...')
     # rather than selected raw, per the account-locale-date-format quirk.
+    #
+    # NOTE on the "Z" suffix (live-verified 2026-08-25, see netsuite_api_doc.md
+    # Known Quirks #8): despite the literal "Z", NetSuite's SuiteQL TO_CHAR(...)
+    # output for createddate/lastmodifieddate is rendered in the account's
+    # *configured timezone preference*, not necessarily true UTC -- live
+    # comparison against the same record's NetSuite REST record API value
+    # (which does carry a real UTC offset) found the sampled account off by
+    # ~7 hours. The "Z" here is a formatting label the connector's own
+    # self-consistent cursor math relies on (see netsuite.py's
+    # _fetch_account_now / _ensure_init_ts), not a guarantee of true UTC for
+    # downstream consumers of the ingested table.
     DATE_COLUMNS: dict[str, str] = {
         "trandate": "YYYY-MM-DD",
         "duedate": "YYYY-MM-DD",
@@ -936,10 +947,25 @@ def register_lakeflow_source(spark):
 
             self._session = requests.Session()
 
-            # Cap incremental cursors at init time so a single AvailableNow
-            # trigger only drains data that existed when the connector started;
-            # later edits are picked up by the next trigger with a fresh cap.
-            self._init_ts = datetime.now(timezone.utc).strftime(_ISO_FMT)
+            # Cap incremental cursors so a single AvailableNow trigger only
+            # drains data that existed when the connector started; later edits
+            # are picked up by the next trigger with a fresh cap.
+            #
+            # Populated lazily, on the first ``read_table`` call (see
+            # ``_ensure_init_ts`` / ``_fetch_account_now``), rather than from
+            # Python's real UTC clock here. Live investigation (2026-08-27, see
+            # netsuite_api_doc.md Known Quirks #8) found that SuiteQL's
+            # TO_CHAR(...) output -- despite the literal "Z" suffix
+            # DATE_COLUMNS wraps it in -- is rendered in the account's
+            # configured timezone, not true UTC. Comparing a true-UTC Python
+            # timestamp against those account-local cursor values would drift
+            # by the account's UTC offset right at the AvailableNow boundary.
+            # Fetching "now" from SuiteQL itself keeps the cap in the same
+            # clock domain as the cursor values it's compared against --
+            # correct regardless of the account's actual offset, and safe
+            # across DST changes since it's read live per connector instance
+            # rather than assumed once.
+            self._init_ts: str | None = None
 
             # Columns SuiteQL has told us, this run, are not valid identifiers on
             # this account (e.g. ``subsidiary`` on non-OneWorld accounts -- see
@@ -1029,6 +1055,35 @@ def register_lakeflow_source(spark):
                 query = query_builder(self._unsupported_columns)
                 return self._run_query(query, limit=limit, offset=offset)
 
+        def _fetch_account_now(self) -> str:
+            """Return "now", rendered exactly like SuiteQL renders
+            ``lastmodifieddate`` (same TO_CHAR format, same clock/timezone).
+
+            Uses ``FROM DUAL`` (a live-verified no-table probe -- SuiteQL
+            supports it the same way Oracle SQL does) with ``CURRENT_DATE`` so
+            this works even on an account with zero vendor bills. See
+            netsuite_api_doc.md Known Quirks #8 for why this is fetched live
+            instead of computed from Python's UTC clock.
+            """
+            body = self._run_query(
+                f"SELECT TO_CHAR(CURRENT_DATE, '{_LASTMODIFIEDDATE_FORMAT}') AS now_ts FROM DUAL",
+                limit=1,
+                offset=0,
+            )
+            items = body.get("items") or []
+            now_ts = items[0].get("now_ts") if items else None
+            if not now_ts:
+                raise RuntimeError(
+                    "Could not determine the current time from SuiteQL "
+                    "(the 'FROM DUAL' probe returned no usable row)."
+                )
+            return now_ts
+
+        def _ensure_init_ts(self) -> None:
+            """Populate ``self._init_ts`` on first use of this instance."""
+            if self._init_ts is None:
+                self._init_ts = self._fetch_account_now()
+
         def _peek_oldest_cursor(self) -> str | None:
             """Auto-discover the oldest ``lastmodifieddate`` among vendor bills.
 
@@ -1053,6 +1108,8 @@ def register_lakeflow_source(spark):
         def _read_vendorbill_window(
             self, start_offset: dict | None, table_options: dict[str, str]
         ) -> tuple[Iterator[dict], dict]:
+            self._ensure_init_ts()
+
             since = (start_offset or {}).get("cursor")
             if not since:
                 since = table_options.get("start_timestamp")

@@ -66,6 +66,13 @@ def _items_response(items: list, has_more: bool = False):
     )
 
 
+def _now_response(now_ts: str = "2030-01-01T00:00:00Z"):
+    """Mocked response for the connector's ``_fetch_account_now`` (``FROM
+    DUAL``) probe -- issued once, lazily, on a connector instance's first
+    ``read_table`` call (see ``_ensure_init_ts`` in netsuite.py)."""
+    return _items_response([{"now_ts": now_ts}])
+
+
 def _query_text(call) -> str:
     """Pull the SuiteQL query text out of a mocked ``session.request`` call."""
     return call.kwargs["json"]["q"]
@@ -159,14 +166,17 @@ def test_read_table_retries_without_subsidiary_and_caches(conn):
     then the window-fetch that follows must build its query already
     excluding 'subsidiary', with no further failure."""
     conn._session.request.side_effect = [
-        # 1) _peek_oldest_cursor, attempt 1 (includes subsidiary) -> 400
+        # 1) _ensure_init_ts's lazy FROM DUAL probe (see netsuite.py) --
+        #    happens once, before the peek/window logic below.
+        _now_response(),
+        # 2) _peek_oldest_cursor, attempt 1 (includes subsidiary) -> 400
         _response(status_code=400, text=_SUBSIDIARY_400_TEXT),
-        # 2) _peek_oldest_cursor, retry (excludes subsidiary) -> succeeds,
+        # 3) _peek_oldest_cursor, retry (excludes subsidiary) -> succeeds,
         #    just establishing a 'since' cursor.
         _items_response(
             [{"id": "0", "lastmodifieddate": "2026-01-01T00:00:00Z"}]
         ),
-        # 3) window fetch, first page -- already excludes subsidiary from
+        # 4) window fetch, first page -- already excludes subsidiary from
         #    the cache, no failure expected here.
         _items_response(
             [{"id": "1", "tranid": "VB-1", "lastmodifieddate": "2026-01-01T00:00:01Z"}],
@@ -182,10 +192,10 @@ def test_read_table_retries_without_subsidiary_and_caches(conn):
     assert offset is not None
 
     calls = conn._session.request.call_args_list
-    assert len(calls) == 3
-    assert "subsidiary" in _query_text(calls[0])  # first attempt requested it
-    assert "subsidiary" not in _query_text(calls[1])  # retry excluded it
-    assert "subsidiary" not in _query_text(calls[2])  # window fetch, cached already
+    assert len(calls) == 4
+    assert "subsidiary" in _query_text(calls[1])  # first attempt requested it
+    assert "subsidiary" not in _query_text(calls[2])  # retry excluded it
+    assert "subsidiary" not in _query_text(calls[3])  # window fetch, cached already
 
     assert conn._unsupported_columns == frozenset({"subsidiary"})
 
@@ -198,6 +208,10 @@ def test_cached_unsupported_column_is_not_retried_on_a_later_call(conn):
     conn._unsupported_columns = frozenset({"subsidiary"})
 
     conn._session.request.side_effect = [
+        # 1) _ensure_init_ts's lazy FROM DUAL probe -- still happens once
+        #    per instance regardless of the unsupported-column cache.
+        _now_response(),
+        # 2) window fetch.
         _items_response(
             [{"id": "2", "tranid": "VB-2", "lastmodifieddate": "2026-01-02T00:00:00Z"}],
             has_more=False,
@@ -216,8 +230,8 @@ def test_cached_unsupported_column_is_not_retried_on_a_later_call(conn):
     assert offset is not None
 
     calls = conn._session.request.call_args_list
-    assert len(calls) == 1  # no failed attempt, no retry needed
-    assert "subsidiary" not in _query_text(calls[0])
+    assert len(calls) == 2  # now-probe + window fetch; no failed attempt, no retry
+    assert "subsidiary" not in _query_text(calls[1])
 
     assert conn._unsupported_columns == frozenset({"subsidiary"})
 
@@ -240,6 +254,73 @@ def test_unrelated_400_is_not_swallowed(conn):
     # Exactly one attempt -- an unmatched error must not trigger a retry.
     assert conn._session.request.call_count == 1
     assert conn._unsupported_columns == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# Timezone finding: self._init_ts is fetched live from SuiteQL, not Python's
+# clock (final-review follow-up, 2026-08-27 -- see netsuite_api_doc.md Known
+# Quirks #8). Live investigation found SuiteQL's TO_CHAR(...) output is
+# rendered in the account's configured timezone despite the literal "Z"
+# suffix, not true UTC -- so the AvailableNow cap must be fetched from the
+# same clock domain as the cursor values it's compared against.
+# ---------------------------------------------------------------------------
+
+
+def test_init_ts_starts_unset_and_is_fetched_lazily(conn):
+    """A fresh instance must not compute _init_ts from Python's clock at
+    construction time -- it stays None until the first read_table call."""
+    assert conn._init_ts is None
+
+
+def test_init_ts_is_populated_from_a_suiteql_dual_probe(conn):
+    """The first read_table call must fetch 'now' via a 'FROM DUAL' SuiteQL
+    probe (not datetime.now()), and cache the result on the instance."""
+    conn._session.request.side_effect = [
+        _now_response("2031-06-15T12:00:00Z"),
+        _items_response(
+            [{"id": "0", "lastmodifieddate": "2026-01-01T00:00:00Z"}]
+        ),
+        _items_response(
+            [{"id": "1", "tranid": "VB-1", "lastmodifieddate": "2026-01-01T00:00:01Z"}],
+            has_more=False,
+        ),
+    ]
+
+    conn.read_table("vendorbill", {}, {})
+
+    assert conn._init_ts == "2031-06-15T12:00:00Z"
+    calls = conn._session.request.call_args_list
+    assert "FROM DUAL" in _query_text(calls[0])
+    assert "CURRENT_DATE" in _query_text(calls[0])
+
+
+def test_init_ts_probe_runs_once_per_instance_not_once_per_call(conn):
+    """A second, separate read_table call on the same instance must reuse
+    the cached _init_ts -- no repeat 'FROM DUAL' probe."""
+    conn._session.request.side_effect = [
+        _now_response("2031-06-15T12:00:00Z"),
+        _items_response(
+            [{"id": "0", "lastmodifieddate": "2026-01-01T00:00:00Z"}],
+            has_more=False,
+        ),
+        _items_response(
+            [{"id": "1", "tranid": "VB-1", "lastmodifieddate": "2026-01-02T00:00:00Z"}],
+            has_more=False,
+        ),
+        _items_response(
+            [{"id": "2", "tranid": "VB-2", "lastmodifieddate": "2026-01-03T00:00:00Z"}],
+            has_more=False,
+        ),
+    ]
+
+    conn.read_table("vendorbill", {}, {})
+    assert conn._init_ts == "2031-06-15T12:00:00Z"
+
+    conn.read_table("vendorbill", {"cursor": "2026-01-01T00:00:00Z"}, {})
+
+    calls = conn._session.request.call_args_list
+    dual_probes = [c for c in calls if "FROM DUAL" in _query_text(c)]
+    assert len(dual_probes) == 1  # not re-fetched on the second call
 
 
 # ---------------------------------------------------------------------------

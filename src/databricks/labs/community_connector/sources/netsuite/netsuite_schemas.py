@@ -85,6 +85,17 @@ VENDOR_BILL_COLUMNS: list[str] = [
 
 # Columns whose SuiteQL value must be normalized via TO_CHAR(..., 'YYYY-MM-DD...')
 # rather than selected raw, per the account-locale-date-format quirk.
+#
+# NOTE on the "Z" suffix (live-verified 2026-08-25, see netsuite_api_doc.md
+# Known Quirks #8): despite the literal "Z", NetSuite's SuiteQL TO_CHAR(...)
+# output for createddate/lastmodifieddate is rendered in the account's
+# *configured timezone preference*, not necessarily true UTC -- live
+# comparison against the same record's NetSuite REST record API value
+# (which does carry a real UTC offset) found the sampled account off by
+# ~7 hours. The "Z" here is a formatting label the connector's own
+# self-consistent cursor math relies on (see netsuite.py's
+# _fetch_account_now / _ensure_init_ts), not a guarantee of true UTC for
+# downstream consumers of the ingested table.
 DATE_COLUMNS: dict[str, str] = {
     "trandate": "YYYY-MM-DD",
     "duedate": "YYYY-MM-DD",
