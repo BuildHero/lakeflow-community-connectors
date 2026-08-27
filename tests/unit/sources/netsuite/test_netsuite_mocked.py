@@ -19,6 +19,7 @@ Each test targets a specific property of the fallback:
 import base64
 import hashlib
 import hmac
+import re
 from urllib.parse import parse_qs, quote, urlsplit
 from unittest.mock import MagicMock
 
@@ -385,6 +386,139 @@ def test_capped_partial_window_below_cluster_still_resumes_mid_window(conn):
     assert end_offset == {"cursor": "2026-01-01T00:00:01Z"}
     # Only a single page fetched -- the uncapped re-drain path was not taken.
     assert conn._session.request.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Multi-window advance path (final-review follow-up, 2026-08-27)
+#
+# Every prior test either bypasses windowing entirely (single-shot cluster
+# fixtures whose ``window_seconds`` is wide enough to never need a second
+# window) or -- in the only end-to-end config ever exercised
+# (``configs/dev_table_config.json``) -- uses a single 10-year window that
+# never advances past its own boundary. None of that exercises the
+# "advance to the next window" branch a real deployment (hour/day-sized
+# ``window_seconds``, per the README's own guidance) hits on every single
+# ``read_table`` call. These tests drive a *sequence* of ``read_table``
+# calls, each with the previous call's real returned offset as its
+# ``start_offset`` (as the framework itself would), across a short,
+# realistic ``window_seconds``.
+# ---------------------------------------------------------------------------
+
+_WINDOW_SINCE_RE = re.compile(r"lastmodifieddate\s*>=\s*TO_DATE\('([^']+)'")
+_WINDOW_UNTIL_RE = re.compile(r"lastmodifieddate\s*<\s*TO_DATE\('([^']+)'")
+
+
+def _windowed_session(rows: list[dict]):
+    """Fake ``session.request`` that answers each call according to the
+    ``[since, until)`` bounds embedded in *that specific call's* SuiteQL
+    query text (mirroring the source-simulator's real ``suiteql`` handler
+    logic), then paginates the matching subset by the URL's
+    ``limit``/``offset``. Unlike ``_paginated_window_response`` (which pages
+    one fixed row set with no window filtering), this lets one mocked
+    session correctly answer a *sequence* of distinct windowed calls."""
+
+    def fake(method, url, **kwargs):
+        query = kwargs["json"]["q"]
+        since_match = _WINDOW_SINCE_RE.search(query)
+        until_match = _WINDOW_UNTIL_RE.search(query)
+        since = since_match.group(1) if since_match else None
+        until = until_match.group(1) if until_match else None
+
+        def in_window(row: dict) -> bool:
+            value = row["lastmodifieddate"]
+            if since is not None and value < since:
+                return False
+            if until is not None and value >= until:
+                return False
+            return True
+
+        filtered = sorted(
+            (r for r in rows if in_window(r)), key=lambda r: r["lastmodifieddate"]
+        )
+        parsed = parse_qs(urlsplit(url).query)
+        limit = int(parsed.get("limit", ["1000"])[0])
+        offset = int(parsed.get("offset", ["0"])[0])
+        page = filtered[offset : offset + limit]
+        has_more = offset + len(page) < len(filtered)
+        return _items_response(page, has_more=has_more)
+
+    return fake
+
+
+def test_multiple_windows_advance_in_sequence_including_an_empty_one(conn):
+    """Three consecutive 1-hour windows -- data, then nothing, then data
+    again -- driven exactly as the real framework would: each call's
+    ``start_offset`` is the previous call's actual returned offset.
+
+    Asserts the cursor advances window-by-window (not stuck re-fetching the
+    same bound, not skipping a window), records from each non-empty window
+    are correctly emitted, and the empty middle window still advances the
+    cursor by a full ``window_seconds`` rather than stalling.
+    """
+    conn._init_ts = "2030-01-01T00:00:00Z"
+    rows = [
+        {"id": "1", "tranid": "VB-1", "lastmodifieddate": "2026-01-01T00:15:00Z"},
+        # 01:00:00Z-02:00:00Z window is deliberately empty.
+        {"id": "2", "tranid": "VB-2", "lastmodifieddate": "2026-01-01T02:10:00Z"},
+        {"id": "3", "tranid": "VB-3", "lastmodifieddate": "2026-01-01T02:45:00Z"},
+    ]
+    conn._session.request.side_effect = _windowed_session(rows)
+    table_options = {"window_seconds": "3600"}  # 1 hour -- realistic, not the 10yr PoC config
+
+    # Window 1: 00:00:00Z-01:00:00Z -- one record.
+    iterator1, offset1 = conn.read_table(
+        "vendorbill", {"cursor": "2026-01-01T00:00:00Z"}, table_options
+    )
+    records1 = list(iterator1)
+    assert [r["id"] for r in records1] == ["1"]
+    assert offset1 == {"cursor": "2026-01-01T01:00:00Z"}
+
+    # Window 2: 01:00:00Z-02:00:00Z -- empty. Must still advance a full
+    # window_seconds, not stall on the same cursor.
+    iterator2, offset2 = conn.read_table("vendorbill", offset1, table_options)
+    records2 = list(iterator2)
+    assert records2 == []
+    assert offset2 == {"cursor": "2026-01-01T02:00:00Z"}
+    assert offset2 != offset1  # advanced, not stuck
+
+    # Window 3: 02:00:00Z-03:00:00Z -- two records.
+    iterator3, offset3 = conn.read_table("vendorbill", offset2, table_options)
+    records3 = list(iterator3)
+    assert [r["id"] for r in records3] == ["2", "3"]
+    assert offset3 == {"cursor": "2026-01-01T03:00:00Z"}
+    assert offset3 != offset2  # advanced again
+
+    # Cursor strictly increased across all three calls -- no skipped window
+    # (which would jump further than one window_seconds) and no repeats.
+    cursors = [offset1["cursor"], offset2["cursor"], offset3["cursor"]]
+    assert cursors == sorted(cursors)
+    assert len(set(cursors)) == 3
+
+
+def test_many_consecutive_empty_windows_each_advance_the_cursor(conn):
+    """Five empty windows in a row must each independently advance the
+    cursor by one ``window_seconds`` -- no stall, no skip, no early
+    short-circuit across multiple empty windows."""
+    conn._init_ts = "2030-01-01T00:00:00Z"
+    rows: list[dict] = []  # no data at all in the probed range
+    conn._session.request.side_effect = _windowed_session(rows)
+    table_options = {"window_seconds": "3600"}
+
+    offset = {"cursor": "2026-01-01T00:00:00Z"}
+    expected_cursors = [
+        "2026-01-01T01:00:00Z",
+        "2026-01-01T02:00:00Z",
+        "2026-01-01T03:00:00Z",
+        "2026-01-01T04:00:00Z",
+        "2026-01-01T05:00:00Z",
+    ]
+    seen_cursors = []
+    for _ in expected_cursors:
+        iterator, offset = conn.read_table("vendorbill", offset, table_options)
+        assert list(iterator) == []
+        seen_cursors.append(offset["cursor"])
+
+    assert seen_cursors == expected_cursors
 
 
 # ---------------------------------------------------------------------------
