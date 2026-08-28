@@ -1,0 +1,17 @@
+# NetSuite SuiteTalk REST Web Services -- SuiteQL query endpoint.
+#
+# The connector issues every read as one POST to the SuiteQL endpoint,
+# with the entire filter (a `type = 'VendBill' AND lastmodifieddate ...`
+# WHERE clause) embedded as free-text SQL inside the JSON request body.
+# Pagination (`limit`/`offset`) is the only part that lives in the URL
+# query string. This body-driven-filter shape doesn't fit the simulator's
+# declarative param-role pipeline (which matches query params/headers),
+# so this endpoint uses a custom handler -- see
+# `handlers/suiteql.py::suiteql` for the SQL-text parsing + windowing
+# logic (mirrors what `handlers/search.py` does for ADME's body-driven
+# OSDU Search Service).
+
+endpoints:
+  - path: /services/rest/query/v1/suiteql
+    method: POST
+    handler: databricks.labs.community_connector.source_simulator.specs.netsuite.handlers.suiteql:suiteql
