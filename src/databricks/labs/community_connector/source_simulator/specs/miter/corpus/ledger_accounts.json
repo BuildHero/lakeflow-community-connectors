@@ -1,0 +1,54 @@
+[
+  {
+    "id": "6a8f12c4b31d5e7a04f0a101",
+    "created_at": "2026-08-20T17:04:11.220Z",
+    "updated_at": "2026-08-20T17:04:11.220Z",
+    "custom_id": "1000",
+    "label": "Operating Cash",
+    "classification": "Asset",
+    "status": "active",
+    "is_selectable_by_team_members": false
+  },
+  {
+    "id": "6a8f12c4b31d5e7a04f0a102",
+    "created_at": "2026-08-20T17:04:11.224Z",
+    "updated_at": "2026-08-20T17:04:11.224Z",
+    "custom_id": "2100",
+    "label": "Payroll Liabilities",
+    "classification": "Liability",
+    "status": "active",
+    "is_selectable_by_team_members": false
+  },
+  {
+    "id": "6a8f12c4b31d5e7a04f0a103",
+    "created_at": "2026-08-20T17:04:11.228Z",
+    "updated_at": "2026-08-22T09:41:02.877Z",
+    "custom_id": "6000",
+    "label": "Payroll Expenses",
+    "classification": "Expense",
+    "status": "active",
+    "is_selectable_by_team_members": true
+  },
+  {
+    "id": "6a8f12c4b31d5e7a04f0a104",
+    "created_at": "2026-08-22T09:41:02.881Z",
+    "updated_at": "2026-09-04T14:18:55.402Z",
+    "custom_id": "6010",
+    "label": "Wages & Salaries",
+    "classification": "Expense",
+    "parent_account_id": "6a8f12c4b31d5e7a04f0a103",
+    "status": "active",
+    "is_selectable_by_team_members": true
+  },
+  {
+    "id": "6a8f12c4b31d5e7a04f0a105",
+    "created_at": "2026-08-22T09:41:02.885Z",
+    "updated_at": "2026-09-19T11:02:36.144Z",
+    "custom_id": "9999",
+    "label": "Legacy Suspense",
+    "classification": "NonPosting",
+    "parent_account_id": "6a8f12c4b31d5e7a04f0a102",
+    "status": "inactive",
+    "is_selectable_by_team_members": false
+  }
+]

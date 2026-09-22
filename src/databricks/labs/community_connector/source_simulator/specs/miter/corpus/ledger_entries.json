@@ -1,0 +1,79 @@
+[
+  {
+    "id": "6aaa20207fd04ee27581cdf0",
+    "created_at": "2026-09-16T04:50:40.756Z",
+    "updated_at": "2026-09-18T05:31:47.085Z",
+    "ledger_id": "6a9063950de88c0568baba68",
+    "entry_type": "payroll_run",
+    "posted_at": "2026-09-16T11:00:00.000Z",
+    "description": "Off-cycle payroll for Sep 7 - 11, paid Sep 16, 2026",
+    "source_objects": {
+      "payroll_id": "6aaa1ae325f287dee6e801a9"
+    }
+  },
+  {
+    "id": "6aab0f51a9d4c3be07e21201",
+    "created_at": "2026-09-19T03:10:22.401Z",
+    "updated_at": "2026-09-19T03:10:22.401Z",
+    "ledger_id": "6a9063950de88c0568baba68",
+    "entry_type": "reimbursement_payout",
+    "posted_at": "2026-09-19T03:00:00.000Z",
+    "description": "Reimbursement payout batch for Sep 19, 2026",
+    "company_entity_id": "6a9064120de88c0568babc17",
+    "source_objects": {
+      "reimbursement_id": "6aab0e1d25f287dee6e80f44",
+      "reimbursement_ids": [
+        "6aab0e1d25f287dee6e80f44",
+        "6aab0e1d25f287dee6e80f45"
+      ]
+    }
+  },
+  {
+    "id": "6aab0f51a9d4c3be07e21202",
+    "created_at": "2026-09-20T08:45:13.612Z",
+    "updated_at": "2026-09-20T08:45:13.612Z",
+    "ledger_id": "6a9063950de88c0568baba68",
+    "entry_type": "timesheet_recoding",
+    "posted_at": "2026-09-20T08:00:00.000Z",
+    "description": "Recode of Sep 14 - 18 timesheets to job 104-B",
+    "company_entity_id": "6a9064120de88c0568babc17",
+    "source_objects": {
+      "recoded_timesheet_ids": [
+        "6aab0c9a201977192b0cd811",
+        "6aab0c9a201977192b0cd812",
+        "6aab0c9a201977192b0cd813"
+      ],
+      "equipment_timesheet_ids": [
+        "6aab0cb1201977192b0cd9a0"
+      ]
+    }
+  },
+  {
+    "id": "6aab0f51a9d4c3be07e21203",
+    "created_at": "2026-09-21T16:22:47.309Z",
+    "updated_at": "2026-09-21T16:22:47.309Z",
+    "ledger_id": "6a9063950de88c0568baba68",
+    "entry_type": "bill_payment",
+    "posted_at": "2026-09-21T16:00:00.000Z",
+    "description": "Vendor bill payment run",
+    "source_objects": {
+      "check_payment_id": "6aab0d4a7fd04ee27581d011",
+      "stripe_inbound_transfer_id": "6aab0d4a7fd04ee27581d012",
+      "expense_id": "6aab0d4a7fd04ee27581d013",
+      "bill_ids": [
+        "6aab0d0f25f287dee6e81088",
+        "6aab0d0f25f287dee6e81089"
+      ]
+    }
+  },
+  {
+    "id": "6aab0f51a9d4c3be07e21204",
+    "created_at": "2026-09-21T18:05:02.774Z",
+    "updated_at": "2026-09-21T18:05:02.774Z",
+    "ledger_id": "6a9063950de88c0568baba68",
+    "entry_type": "manual",
+    "posted_at": "2026-09-21T18:00:00.000Z",
+    "description": "Manual adjusting entry — no originating Miter object",
+    "source_objects": {}
+  }
+]

@@ -19,14 +19,34 @@ unaffected. This keeps the test runnable in both plain and sandboxed shells.
 """
 import json
 import os
+import pathlib
 import subprocess
 import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 
 from tests.unit.sources.test_utils import load_config
 
 BASE_URL = "https://api.staging.miter.com/api/v2"
+
+CONFIG_PATH = pathlib.Path(__file__).parent / "configs" / "dev_config.json"
+
+# Pytest collects this file (``python_files`` includes ``*_test.py``), but the
+# check only means anything when credentials are actually present. Gate it the
+# same way the other connectors' auth-verification tests do — see
+# ``tests/unit/sources/dicomweb/test_auth_verify.py`` — so the default
+# credential-free, simulator-backed run stays green instead of erroring out of
+# ``load_config``.
+pytestmark = pytest.mark.skipif(
+    not (
+        os.environ.get("CONNECTOR_TEST_CONFIG_JSON", "").strip()
+        or os.environ.get("CONNECTOR_TEST_CONFIG_PATH", "").strip()
+        or CONFIG_PATH.exists()
+    ),
+    reason="no Miter credentials supplied — skipping live auth check",
+)
 
 
 def _curl_get(url: str, headers: dict, timeout: int = 10):
@@ -51,7 +71,8 @@ def _curl_get(url: str, headers: dict, timeout: int = 10):
 
 def test_auth():
     """Verify supplied credentials are valid by calling GET /ping."""
-    config = load_config()  # honors CONNECTOR_TEST_CONFIG_JSON / _PATH env vars
+    # Honors CONNECTOR_TEST_CONFIG_JSON / _PATH, then the local dev_config.json.
+    config = load_config(CONFIG_PATH)
 
     api_token = config["api_token"]
     headers = {"Authorization": f"Bearer {api_token}"}

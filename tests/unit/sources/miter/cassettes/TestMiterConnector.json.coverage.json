@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "endpoints": [
+    {
+      "method": "GET",
+      "url": "https://api.staging.miter.com/api/v2/ledger_accounts",
+      "count": 10,
+      "param_shapes": [
+        [
+          "limit",
+          "output_fields",
+          "sort[direction]",
+          "sort[field]"
+        ],
+        [
+          "limit",
+          "sort[before_inclusive]",
+          "sort[direction]",
+          "sort[field]"
+        ]
+      ]
+    },
+    {
+      "method": "GET",
+      "url": "https://api.staging.miter.com/api/v2/ledger_entries",
+      "count": 18,
+      "param_shapes": [
+        [
+          "limit",
+          "output_fields",
+          "sort[direction]",
+          "sort[field]"
+        ],
+        [
+          "limit",
+          "sort[after_exclusive]",
+          "sort[before_inclusive]",
+          "sort[direction]",
+          "sort[field]"
+        ]
+      ]
+    },
+    {
+      "method": "GET",
+      "url": "https://api.staging.miter.com/api/v2/ledger_entries/6aaa20207fd04ee27581cdf0/line_items",
+      "count": 2,
+      "param_shapes": [
+        [
+          "limit",
+          "sort[before_inclusive]",
+          "sort[direction]",
+          "sort[field]"
+        ]
+      ]
+    },
+    {
+      "method": "GET",
+      "url": "https://api.staging.miter.com/api/v2/ledger_mappings",
+      "count": 10,
+      "param_shapes": [
+        [
+          "limit",
+          "output_fields",
+          "sort[direction]",
+          "sort[field]"
+        ],
+        [
+          "limit",
+          "sort[after_exclusive]",
+          "sort[before_inclusive]",
+          "sort[direction]",
+          "sort[field]"
+        ]
+      ]
+    }
+  ]
+}

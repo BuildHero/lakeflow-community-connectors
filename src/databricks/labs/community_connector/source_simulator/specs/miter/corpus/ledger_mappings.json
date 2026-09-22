@@ -1,0 +1,53 @@
+[
+  {
+    "id": "6a906395dfad72eb7bb4200b",
+    "created_at": "2026-08-27T16:19:33.975Z",
+    "updated_at": "2026-08-27T16:19:33.975Z",
+    "name": "Default GL mapping",
+    "is_company_default": true
+  },
+  {
+    "id": "6a9a7f10c2be41f2d5a3b001",
+    "created_at": "2026-09-19T12:40:08.512Z",
+    "updated_at": "2026-09-19T12:40:08.512Z",
+    "name": "West division GL mapping",
+    "is_company_default": false,
+    "defaults": {
+      "payroll_funds_source": "6a8f12c4b31d5e7a04f0a101",
+      "employee_earnings": "6a8f12c4b31d5e7a04f0a104",
+      "contractor_earnings": "6a8f12c4b31d5e7a04f0a104",
+      "employer_payroll_taxes": "6a8f12c4b31d5e7a04f0a103",
+      "employer_benefit_contributions": "6a8f12c4b31d5e7a04f0a103",
+      "benefit_liabilities": "6a8f12c4b31d5e7a04f0a102",
+      "paper_check_liabilities": "6a8f12c4b31d5e7a04f0a102",
+      "reimbursements": null
+    },
+    "earning_type_accounts": {
+      "regular": "6a8f12c4b31d5e7a04f0a104",
+      "overtime": "6a8f12c4b31d5e7a04f0a104",
+      "double_time": "6a8f12c4b31d5e7a04f0a104",
+      "bonus": null
+    },
+    "benefit_type_expense_accounts": {
+      "401k": "6a8f12c4b31d5e7a04f0a103",
+      "hsa": "6a8f12c4b31d5e7a04f0a103",
+      "125_medical": null
+    },
+    "benefit_type_liability_accounts": {
+      "401k": "6a8f12c4b31d5e7a04f0a102",
+      "hsa": "6a8f12c4b31d5e7a04f0a102",
+      "125_medical": null
+    }
+  },
+  {
+    "id": "6a9a7f10c2be41f2d5a3b002",
+    "created_at": "2026-09-21T09:27:44.196Z",
+    "updated_at": "2026-09-21T09:27:44.196Z",
+    "name": "Unconfigured mapping",
+    "is_company_default": false,
+    "defaults": {},
+    "earning_type_accounts": {},
+    "benefit_type_expense_accounts": {},
+    "benefit_type_liability_accounts": {}
+  }
+]
