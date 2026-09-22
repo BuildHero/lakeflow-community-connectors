@@ -66,6 +66,23 @@ def get_field(record: Dict[str, Any], path: str) -> Any:
     return cur
 
 
+def extract_records_by_key(body: Any, records_key: str) -> Optional[List[Any]]:
+    """Walk a dotted ``records_key`` path from a response body; return the
+    list found there, or ``None`` if any segment is missing or the final
+    value isn't a list.
+
+    Shared by ``validator.py`` and ``cassette_to_corpus.py`` so a spec's
+    declared ``response.wrapper.records_key`` is honored identically by
+    both — an envelope nested more than one level deep (e.g.
+    ``data.results``) must extract the same way whether validating live
+    drift or seeding a corpus from a cassette.
+    """
+    if not isinstance(body, dict):
+        return None
+    value = get_field(body, records_key)
+    return value if isinstance(value, list) else None
+
+
 def set_field(record: Dict[str, Any], path: str, value: Any) -> None:
     """Write a dotted-path field on a record, creating intermediate dicts if missing."""
     cur: Any = record
