@@ -26,6 +26,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from databricks.labs.community_connector.source_simulator.cassette import Cassette
+from databricks.labs.community_connector.source_simulator.corpus import (
+    extract_records_by_key,
+)
 from databricks.labs.community_connector.source_simulator.endpoint_spec import (
     EndpointSpec,
     load_specs,
@@ -69,7 +72,7 @@ def extract_corpus(
                 single_entities[spec.corpus] = body
             continue
 
-        records = _extract_records(body)
+        records = _extract_records(body, spec)
         if not records:
             continue
         for r in records:
@@ -107,10 +110,22 @@ def _query_str(query: Dict[str, str]) -> str:
     return "?" + "&".join(f"{k}={v}" for k, v in query.items())
 
 
-def _extract_records(body: Any) -> List[dict]:
-    """Best-effort: top-level array of dicts wins; otherwise dig for one."""
+def _extract_records(body: Any, spec: EndpointSpec) -> List[dict]:
+    """Extract the records array from a response body.
+
+    Honors the spec's declared ``response.wrapper.records_key`` first (the
+    same dotted-path walk ``validator.py`` uses for live-vs-corpus
+    validation), so a nested envelope like ``{"data": {"results": [...]}}``
+    extracts identically here and there. Specs with no wrapper fall back to
+    guessing: top-level array wins, else a common hint key, else the
+    longest list-of-dicts value.
+    """
     if isinstance(body, list):
         return [r for r in body if isinstance(r, dict)]
+    wrapper = spec.response.wrapper
+    if wrapper is not None:
+        records = extract_records_by_key(body, wrapper.records_key)
+        return [r for r in records if isinstance(r, dict)] if records else []
     if isinstance(body, dict):
         for hint in ("records", "items", "data", "results", "entries", "values", "elements"):
             if hint in body and isinstance(body[hint], list):
