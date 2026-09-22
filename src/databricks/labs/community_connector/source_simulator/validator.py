@@ -43,7 +43,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from requests.models import PreparedRequest, Response
 
 from databricks.labs.community_connector.source_simulator.cassette import RequestRecord
-from databricks.labs.community_connector.source_simulator.corpus import CorpusStore
+from databricks.labs.community_connector.source_simulator.corpus import (
+    CorpusStore,
+    extract_records_by_key,
+)
 from databricks.labs.community_connector.source_simulator.endpoint_spec import (
     EndpointSpec,
     match_endpoint,
@@ -322,14 +325,7 @@ def _extract_records(body: Any, spec: EndpointSpec) -> Optional[List[Any]]:
         return None
     wrapper = spec.response.wrapper
     if wrapper is not None:
-        # Walk the dotted records_key.
-        cur: Any = body
-        for part in wrapper.records_key.split("."):
-            if isinstance(cur, dict) and part in cur:
-                cur = cur[part]
-            else:
-                return None
-        return cur if isinstance(cur, list) else None
+        return extract_records_by_key(body, wrapper.records_key)
     # Generic fallback — common record-array field names.
     for hint in ("records", "items", "data", "results", "value", "entries"):
         if hint in body and isinstance(body[hint], list):
