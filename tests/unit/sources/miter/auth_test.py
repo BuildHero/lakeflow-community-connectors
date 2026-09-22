@@ -69,8 +69,13 @@ def _curl_get(url: str, headers: dict, timeout: int = 10):
     return int(status_code), body
 
 
-def test_auth():
-    """Verify supplied credentials are valid by calling GET /ping."""
+def _verify() -> "tuple[int, str]":
+    """Call GET /ping and return (status_code, diagnostic_message).
+
+    Shared by the pytest entry point (which asserts on the status code)
+    and the ``__main__`` script entry point (which maps it to an exit
+    code) so the two can't drift into reporting different outcomes.
+    """
     # Honors CONNECTOR_TEST_CONFIG_JSON / _PATH, then the local dev_config.json.
     config = load_config(CONFIG_PATH)
 
@@ -86,28 +91,38 @@ def test_auth():
 
     if status_code == 200:
         data = (body or {}).get("data", {})
-        print("Authentication successful! Connected to Miter.")
-        print(f"   company_id: {data.get('company_id')}")
-        print(f"   token_name: {data.get('token_name')}")
-        print(f"   scopes: {data.get('scopes')}")
-        print(f"   rate_limits: {data.get('rate_limits')}")
-        return True
+        message = (
+            "Authentication successful! Connected to Miter.\n"
+            f"   company_id: {data.get('company_id')}\n"
+            f"   token_name: {data.get('token_name')}\n"
+            f"   scopes: {data.get('scopes')}\n"
+            f"   rate_limits: {data.get('rate_limits')}"
+        )
     elif status_code == 401:
-        print("Authentication failed: Invalid or revoked token (HTTP 401).")
-        print(f"   Body: {body_text}")
-        print("   Check the api_token supplied via CONNECTOR_TEST_CONFIG_JSON / "
-              "CONNECTOR_TEST_CONFIG_PATH.")
-        return False
+        message = (
+            "Authentication failed: Invalid or revoked token (HTTP 401).\n"
+            f"   Body: {body_text}\n"
+            "   Check the api_token supplied via CONNECTOR_TEST_CONFIG_JSON / "
+            "CONNECTOR_TEST_CONFIG_PATH."
+        )
     elif status_code == 403:
-        print("Authorization failed: Token lacks required scope (HTTP 403).")
-        print(f"   Body: {body_text}")
-        return False
+        message = (
+            "Authorization failed: Token lacks required scope (HTTP 403).\n"
+            f"   Body: {body_text}"
+        )
     else:
-        print(f"Unexpected response: HTTP {status_code}")
-        print(f"   Body: {body_text}")
-        return False
+        message = f"Unexpected response: HTTP {status_code}\n   Body: {body_text}"
+
+    print(message)
+    return status_code, message
+
+
+def test_auth():
+    """Verify supplied credentials are valid by calling GET /ping."""
+    status_code, message = _verify()
+    assert status_code == 200, message
 
 
 if __name__ == "__main__":
-    success = test_auth()
-    sys.exit(0 if success else 1)
+    _status_code, _message = _verify()
+    sys.exit(0 if _status_code == 200 else 1)
