@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-22T07:58:15.141111Z",
+  "endpoints": [
+    {
+      "method": "GET",
+      "spec_path": "/api/v2/ledger_accounts",
+      "sample_url": "https://api.staging.miter.com/api/v2/ledger_accounts?sort%5Bfield%5D=updated_at&sort%5Bdirection%5D=ascending&limit=1&output_fields=updated_at",
+      "status": "validated",
+      "calls": 6,
+      "matched": 6,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    },
+    {
+      "method": "GET",
+      "spec_path": "/api/v2/ledger_entries",
+      "sample_url": "https://api.staging.miter.com/api/v2/ledger_entries?sort%5Bfield%5D=updated_at&sort%5Bdirection%5D=ascending&limit=1&output_fields=updated_at",
+      "status": "validated",
+      "calls": 6,
+      "matched": 6,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    },
+    {
+      "method": "GET",
+      "spec_path": "/api/v2/ledger_entries/{parent_id}/line_items",
+      "sample_url": "https://api.staging.miter.com/api/v2/ledger_entries/6aaa20207fd04ee27581cdf0/line_items?sort%5Bfield%5D=updated_at&sort%5Bdirection%5D=ascending&limit=100&sort%5Bbefore_inclusive%5D=2026-09-22T07%3A58%3A13.597Z",
+      "status": "validated",
+      "calls": 2,
+      "matched": 2,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    },
+    {
+      "method": "GET",
+      "spec_path": "/api/v2/ledger_mappings",
+      "sample_url": "https://api.staging.miter.com/api/v2/ledger_mappings?sort%5Bfield%5D=updated_at&sort%5Bdirection%5D=ascending&limit=1&output_fields=updated_at",
+      "status": "validated",
+      "calls": 4,
+      "matched": 4,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    }
+  ],
+  "summary": {
+    "endpoints_total": 4,
+    "endpoints_validated": 4,
+    "endpoints_mismatched": 0,
+    "endpoints_missing_spec": 0
+  }
+}

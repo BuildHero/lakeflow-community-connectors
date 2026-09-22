@@ -82,6 +82,46 @@ endpoints:
         assert "things" in out
         assert {r["id"] for r in out["things"]} == {1, 2, 3}
 
+    def test_extracts_records_through_nested_wrapper_envelope(self, tmp_path: Path):
+        """Regression: a spec-declared multi-level ``records_key`` (e.g.
+        Miter's ``{"success": true, "data": {"results": [...]}}``) must be
+        honored, not just the single-level hint-key guessing used when no
+        wrapper is declared."""
+        cassette = _cassette_with(
+            [
+                (
+                    "GET",
+                    "https://api.example/things",
+                    {},
+                    {
+                        "success": True,
+                        "data": {
+                            "size": 2,
+                            "next_page": None,
+                            "results": [{"id": 1, "v": "a"}, {"id": 2, "v": "b"}],
+                        },
+                    },
+                ),
+            ],
+            tmp_path / "cassette.json",
+        )
+        spec_path = _spec(
+            tmp_path / "endpoints.yaml",
+            """
+endpoints:
+  - path: "/things"
+    method: GET
+    corpus: things
+    response:
+      wrapper:
+        records_key: data.results
+""",
+        )
+        cas = Cassette.load(cassette)
+        out = extract_corpus(cas, load_specs(spec_path))
+        assert "things" in out
+        assert {r["id"] for r in out["things"]} == {1, 2}
+
     def test_dedups_by_eq_filter_field(self, tmp_path: Path):
         cassette = _cassette_with(
             [

@@ -1,0 +1,76 @@
+# Miter Community Connector Spec
+# This file defines the specification for the connector including
+# connection parameters and allowlist options.
+#
+# Miter provides a unified general-ledger data model via its v2 REST API.
+# The connector syncs four tables: ledger_accounts, ledger_entries,
+# ledger_line_items, and ledger_mappings. ledger_line_items is nested
+# under ledger_entries and can be partitioned per parent entry or by time.
+
+# ============================================================================
+# Connection Parameters
+# These are provided when creating the Unity Catalog connection.
+# ============================================================================
+display_name: Miter
+connection:
+  parameters:
+    - name: api_token
+      type: string
+      required: true
+      secret: true
+      description: >
+        API token for Miter authentication. Miter uses HTTP Bearer token
+        authentication. The token is sent as an HTTP header:
+        Authorization: Bearer <API_TOKEN>. Tokens are company-specific
+        and scoped per resource and action. Verify the token works by
+        testing GET /ping endpoint. See Miter API documentation for
+        instructions on generating tokens in your Miter workspace.
+
+    - name: base_url
+      type: string
+      required: false
+      description: >
+        Root URL of the Miter v2 REST API. Defaults to the production
+        endpoint https://api.miter.com/api/v2. Set this to
+        https://api.staging.miter.com/api/v2 when the api_token was issued
+        in Miter's staging environment — tokens are environment-specific
+        and a staging token returns 401 against production.
+
+# ============================================================================
+# External Options Allowlist
+# These table-specific options must be included in the externalOptionsAllowList
+# parameter of the UC connection to allow them to be passed through.
+# Use a comma-separated string of option names.
+#
+# Options read by the connector:
+#   - page_size               API limit per request for paginated endpoints
+#                             (default 100, max 1000).
+#   - window_seconds          Time-window width in seconds for partitioning
+#                             tables by updated_at range (default 86400 / 1 day).
+#   - max_partitions          Upper bound on partitions generated per call to
+#                             get_partitions() (default 200). Window size is
+#                             expanded if partition count exceeds this.
+#   - max_records_per_batch   Optional cap on records returned per call to
+#                             read_table() in single-driver mode (default unbounded).
+#                             Ignored for ledger_line_items, which is unbounded
+#                             per window.
+#   - start_timestamp         Lower bound (ISO 8601) for the very first read
+#                             of a table. If not supplied, the connector
+#                             discovers the oldest record. ledger_line_items
+#                             uses this only if parent_ids are configured.
+#   - lookback_seconds        Seconds subtracted from the query cursor to catch
+#                             late updates. Applied to since bounds at query time
+#                             (default 0 / no lookback).
+#   - max_pages               Safety cap on pages per paginated request
+#                             (default 0 / unlimited). Useful for testing or
+#                             debugging against APIs with expensive pagination.
+#   - parent_ids              ledger_line_items only: comma-separated list of
+#                             parent ledger_entry ids to restrict the sync to.
+#                             If not supplied, all parents are fetched.
+#   - max_parents             ledger_line_items only: cap on the number of parent
+#                             entries to sync (default 0 / unlimited).
+#   - parents_per_partition   ledger_line_items only: number of parents to fan
+#                             out per partition (default 20). Controls executor
+#                             parallelism.
+# ============================================================================
+external_options_allowlist: "page_size,window_seconds,max_partitions,max_records_per_batch,start_timestamp,lookback_seconds,max_pages,parent_ids,max_parents,parents_per_partition"
