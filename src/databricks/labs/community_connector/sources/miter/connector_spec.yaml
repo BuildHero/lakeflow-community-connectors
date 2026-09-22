@@ -21,6 +21,16 @@ connection:
         testing GET /ping endpoint. See Miter API documentation for
         instructions on generating tokens in your Miter workspace.
 
+    - name: base_url
+      type: string
+      required: false
+      description: >
+        Root URL of the Miter v2 REST API. Defaults to the production
+        endpoint https://api.miter.com/api/v2. Set this to
+        https://api.staging.miter.com/api/v2 when the api_token was issued
+        in Miter's staging environment — tokens are environment-specific
+        and a staging token returns 401 against production.
+
 # ============================================================================
 # External Options Allowlist
 # These table-specific options must be included in the externalOptionsAllowList
@@ -28,4 +38,4 @@ connection:
 # Use a comma-separated string of option names.
 # If no table-specific options are needed, set to empty string or omit.
 # ============================================================================
-external_options_allowlist: ""
+external_options_allowlist: "page_size,window_seconds,max_partitions,max_records_per_batch,start_timestamp,lookback_seconds,max_pages,parent_ids,max_parents,parents_per_partition"

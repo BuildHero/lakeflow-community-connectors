@@ -1,0 +1,116 @@
+# Miter v2 REST API (https://api.miter.com/api/v2).
+#
+# Every list endpoint shares one envelope:
+#   {"success": true, "data": {"size": N, "next_page": <objectid|null>,
+#                              "results": [...]}}
+# ``next_page`` is always emitted as null so the connector reads one page
+# per request and stops — the real cursor is opaque and cannot be modelled
+# declaratively.
+#
+# Incremental reads use the deepObject ``sort`` param:
+#   sort[field]=updated_at&sort[direction]=ascending
+#   sort[after_exclusive]=<cursor>&sort[before_inclusive]=<cap>
+# The connector caps the offset it returns at its init-time snapshot, so
+# ``synthesize_future_records`` is declared on each list endpoint to prove
+# the cap holds (an uncapped connector would leak the future rows and the
+# termination test would not converge).
+
+endpoints:
+  - path: "/api/v2/ledger_accounts"
+    method: GET
+    corpus: ledger_accounts
+    response:
+      pagination_style: none
+      default_sort: "updated_at asc"
+      wrapper:
+        records_key: data.results
+        extras:
+          next_page: null
+    synthesize_future_records:
+      cursor_field: updated_at
+      count: 3
+    params:
+      "sort[field]": {role: sort_by, options: [created_at, updated_at]}
+      "sort[direction]": {role: sort_order, options: [ascending, descending]}
+      "sort[after_exclusive]": {role: filter, field: updated_at, op: gt}
+      "sort[after_inclusive]": {role: filter, field: updated_at, op: gte}
+      "sort[before_exclusive]": {role: filter, field: updated_at, op: lt}
+      "sort[before_inclusive]": {role: filter, field: updated_at, op: lte}
+      limit: {role: limit, default: 100, max: 1000}
+      page: {role: ignore}
+      output_fields: {role: ignore}
+
+  - path: "/api/v2/ledger_entries"
+    method: GET
+    corpus: ledger_entries
+    response:
+      pagination_style: none
+      default_sort: "updated_at asc"
+      wrapper:
+        records_key: data.results
+        extras:
+          next_page: null
+    synthesize_future_records:
+      cursor_field: updated_at
+      count: 3
+    params:
+      "sort[field]": {role: sort_by, options: [created_at, updated_at]}
+      "sort[direction]": {role: sort_order, options: [ascending, descending]}
+      "sort[after_exclusive]": {role: filter, field: updated_at, op: gt}
+      "sort[after_inclusive]": {role: filter, field: updated_at, op: gte}
+      "sort[before_exclusive]": {role: filter, field: updated_at, op: lt}
+      "sort[before_inclusive]": {role: filter, field: updated_at, op: lte}
+      limit: {role: limit, default: 100, max: 1000}
+      page: {role: ignore}
+      output_fields: {role: ignore}
+
+  # Nested resource: no global list endpoint, one call per parent
+  # ledger_entries.id. The simulator ignores the path param, so every
+  # parent is served the same corpus.
+  - path: "/api/v2/ledger_entries/{parent_id}/line_items"
+    method: GET
+    corpus: ledger_line_items
+    response:
+      pagination_style: none
+      default_sort: "updated_at asc"
+      wrapper:
+        records_key: data.results
+        extras:
+          next_page: null
+    synthesize_future_records:
+      cursor_field: updated_at
+      count: 3
+    params:
+      "sort[field]": {role: sort_by, options: [created_at, updated_at]}
+      "sort[direction]": {role: sort_order, options: [ascending, descending]}
+      "sort[after_exclusive]": {role: filter, field: updated_at, op: gt}
+      "sort[after_inclusive]": {role: filter, field: updated_at, op: gte}
+      "sort[before_exclusive]": {role: filter, field: updated_at, op: lt}
+      "sort[before_inclusive]": {role: filter, field: updated_at, op: lte}
+      limit: {role: limit, default: 100, max: 1000}
+      page: {role: ignore}
+      output_fields: {role: ignore}
+
+  - path: "/api/v2/ledger_mappings"
+    method: GET
+    corpus: ledger_mappings
+    response:
+      pagination_style: none
+      default_sort: "updated_at asc"
+      wrapper:
+        records_key: data.results
+        extras:
+          next_page: null
+    synthesize_future_records:
+      cursor_field: updated_at
+      count: 3
+    params:
+      "sort[field]": {role: sort_by, options: [created_at, updated_at]}
+      "sort[direction]": {role: sort_order, options: [ascending, descending]}
+      "sort[after_exclusive]": {role: filter, field: updated_at, op: gt}
+      "sort[after_inclusive]": {role: filter, field: updated_at, op: gte}
+      "sort[before_exclusive]": {role: filter, field: updated_at, op: lt}
+      "sort[before_inclusive]": {role: filter, field: updated_at, op: lte}
+      limit: {role: limit, default: 100, max: 1000}
+      page: {role: ignore}
+      output_fields: {role: ignore}
