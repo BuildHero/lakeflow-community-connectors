@@ -1,6 +1,11 @@
 # Miter Community Connector Spec
 # This file defines the specification for the connector including
 # connection parameters and allowlist options.
+#
+# Miter provides a unified general-ledger data model via its v2 REST API.
+# The connector syncs four tables: ledger_accounts, ledger_entries,
+# ledger_line_items, and ledger_mappings. ledger_line_items is nested
+# under ledger_entries and can be partitioned per parent entry or by time.
 
 # ============================================================================
 # Connection Parameters
@@ -36,6 +41,36 @@ connection:
 # These table-specific options must be included in the externalOptionsAllowList
 # parameter of the UC connection to allow them to be passed through.
 # Use a comma-separated string of option names.
-# If no table-specific options are needed, set to empty string or omit.
+#
+# Options read by the connector:
+#   - page_size               API limit per request for paginated endpoints
+#                             (default 100, max 1000).
+#   - window_seconds          Time-window width in seconds for partitioning
+#                             tables by updated_at range (default 86400 / 1 day).
+#   - max_partitions          Upper bound on partitions generated per call to
+#                             get_partitions() (default 200). Window size is
+#                             expanded if partition count exceeds this.
+#   - max_records_per_batch   Optional cap on records returned per call to
+#                             read_table() in single-driver mode (default unbounded).
+#                             Ignored for ledger_line_items, which is unbounded
+#                             per window.
+#   - start_timestamp         Lower bound (ISO 8601) for the very first read
+#                             of a table. If not supplied, the connector
+#                             discovers the oldest record. ledger_line_items
+#                             uses this only if parent_ids are configured.
+#   - lookback_seconds        Seconds subtracted from the query cursor to catch
+#                             late updates. Applied to since bounds at query time
+#                             (default 0 / no lookback).
+#   - max_pages               Safety cap on pages per paginated request
+#                             (default 0 / unlimited). Useful for testing or
+#                             debugging against APIs with expensive pagination.
+#   - parent_ids              ledger_line_items only: comma-separated list of
+#                             parent ledger_entry ids to restrict the sync to.
+#                             If not supplied, all parents are fetched.
+#   - max_parents             ledger_line_items only: cap on the number of parent
+#                             entries to sync (default 0 / unlimited).
+#   - parents_per_partition   ledger_line_items only: number of parents to fan
+#                             out per partition (default 20). Controls executor
+#                             parallelism.
 # ============================================================================
 external_options_allowlist: "page_size,window_seconds,max_partitions,max_records_per_batch,start_timestamp,lookback_seconds,max_pages,parent_ids,max_parents,parents_per_partition"
