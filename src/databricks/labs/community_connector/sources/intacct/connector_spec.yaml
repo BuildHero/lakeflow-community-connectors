@@ -1,0 +1,71 @@
+# Sage Intacct Community Connector Spec
+# This file defines the specification for the Intacct connector including
+# connection parameters and allowlist options.
+
+# ============================================================================
+# Connection Parameters
+# These are provided when creating the Unity Catalog connection.
+# ============================================================================
+connection:
+  parameters:
+    - name: sender_id
+      type: string
+      required: true
+      secret: true
+      description: >
+        Web Services Sender ID issued by Sage Intacct to the ISV/integration.
+        This identifies the client application itself to the XML Gateway.
+
+    - name: sender_password
+      type: string
+      required: true
+      secret: true
+      description: >
+        Password for the Sender ID. Used in the control block of every
+        XML Gateway request.
+
+    - name: company_id
+      type: string
+      required: true
+      description: >
+        Target Intacct company ID. Identifies the company whose data will
+        be read from.
+
+    - name: user_id
+      type: string
+      required: true
+      description: >
+        Intacct user ID with API and module permissions for the company.
+        Used to authenticate and obtain a session with Intacct.
+
+    - name: user_password
+      type: string
+      required: true
+      secret: true
+      description: >
+        Password for the user ID. Used once to obtain an API session via
+        getAPISession; the session ID is then cached and reused for all
+        subsequent queries.
+
+    - name: location_id
+      type: string
+      required: false
+      description: >
+        Entity/location ID for multi-entity companies. Optional; only
+        required if the target company has multiple locations and you need
+        to read from a specific location.
+
+    - name: base_url
+      type: string
+      required: false
+      description: >
+        Base URL for the XML Gateway endpoint. Defaults to
+        https://api.intacct.com/ia/xml/xmlgw.phtml. Override only if using
+        a custom instance or alternative endpoint.
+
+# ============================================================================
+# External Options Allowlist
+# These table-specific options must be included in the externalOptionsAllowList
+# parameter of the UC connection to allow them to be passed through.
+# ============================================================================
+external_options_allowlist: "start_timestamp,window_seconds,max_records_per_batch,pagesize"
