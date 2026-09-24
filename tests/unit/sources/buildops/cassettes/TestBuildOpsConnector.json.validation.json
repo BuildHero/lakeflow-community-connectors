@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-24T17:02:04.553598Z",
+  "endpoints": [
+    {
+      "method": "POST",
+      "spec_path": "/v1/auth/token",
+      "sample_url": "https://public-api.dev.buildops.com/v1/auth/token",
+      "status": "validated",
+      "calls": 3,
+      "matched": 3,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    },
+    {
+      "method": "POST",
+      "spec_path": "/v2/bills",
+      "sample_url": "https://public-api.dev.buildops.com/v2/bills",
+      "status": "validated",
+      "calls": 2,
+      "matched": 2,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    },
+    {
+      "method": "DELETE",
+      "spec_path": "/v2/bills/{billId}",
+      "sample_url": "https://public-api.dev.buildops.com/v2/bills/d51c0486-7e54-4aa6-a7f5-85e62987beee",
+      "status": "validated",
+      "calls": 2,
+      "matched": 2,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    },
+    {
+      "method": "GET",
+      "spec_path": "/v2/bills/{billId}",
+      "sample_url": "https://public-api.dev.buildops.com/v2/bills/355d6063-5bc2-4f39-8629-1de2a9c15b5b",
+      "status": "validated",
+      "calls": 7,
+      "matched": 7,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    }
+  ],
+  "summary": {
+    "endpoints_total": 4,
+    "endpoints_validated": 4,
+    "endpoints_mismatched": 0,
+    "endpoints_missing_spec": 0
+  }
+}
