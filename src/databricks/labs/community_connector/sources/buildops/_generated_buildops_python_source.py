@@ -621,7 +621,15 @@ def register_lakeflow_source(spark):
     # ---------------------------------------------------------------------------
 
     # Values accepted by the ``include`` query parameter of GET /v2/bills/{billId}.
+    # The live API expects ONE comma-separated value (``include=vendor,job``); the
+    # repeated-key form (``include=vendor&include=job``) is silently ignored.
+    # Verified live: besides the 12 documented relations, ``billLines``,
+    # ``addresses`` and ``vendorDocumentAttachment`` are also include-gated -- GET
+    # omits those keys entirely unless they are requested. Unknown values -> 400.
     BILL_INCLUDE_VALUES = (
+        "billLines",
+        "addresses",
+        "vendorDocumentAttachment",
         "purchaseOrder",
         "purchaseOrderReceipt",
         "vendor",
@@ -649,7 +657,7 @@ def register_lakeflow_source(spark):
             StructField("createdDateTime", LongType(), True),
             StructField("lastUpdatedBy", StringType(), True),
             StructField("lastUpdatedDate", StringType(), True),
-            StructField("lastUpdatedDateTime", StringType(), True),
+            StructField("lastUpdatedDateTime", LongType(), True),
             StructField("deletedBy", StringType(), True),
             StructField("deletedDate", StringType(), True),
             StructField("deletedDateTime", LongType(), True),
@@ -803,6 +811,36 @@ def register_lakeflow_source(spark):
             StructField("status", StringType(), True),
             StructField("createdByEmployeeId", StringType(), True),
             StructField("isCreatedFromMobile", BooleanType(), True),
+            # Fields returned by the live API but absent from the documented
+            # PublicBillResponseDto (observed 2026-09-24 on the dev tenant). Types
+            # follow the observed values; fields only ever seen as null follow
+            # their CreateBillDto counterpart / naming. ``taxAmountOverridden`` is
+            # a StringType because its type could not be observed (always null)
+            # and a string column is lossless for either a flag or an amount.
+            StructField("uniqueBillNumber", StringType(), True),
+            StructField("accountingRefId", StringType(), True),
+            StructField("isStandalone", BooleanType(), True),
+            StructField("totalAmountPreTax", DoubleType(), True),
+            StructField("taxRegionId", StringType(), True),
+            StructField("isUseTaxable", BooleanType(), True),
+            StructField("useTaxTotal", DoubleType(), True),
+            StructField("taxAmountOverridden", StringType(), True),
+            StructField("isReceiptBound", BooleanType(), True),
+            StructField("vendorDocumentAttachmentId", StringType(), True),
+            StructField("amountDue", DoubleType(), True),
+            StructField("isRetainageApplicable", BooleanType(), True),
+            StructField("isRetainageBill", BooleanType(), True),
+            StructField("defaultRetainagePercent", DoubleType(), True),
+            StructField("totalRetainageAmount", DoubleType(), True),
+            StructField("retainageAmountUnbilled", DoubleType(), True),
+            StructField("parentBillId", StringType(), True),
+            StructField("vendorLocationId", StringType(), True),
+            StructField("vendorContactId", StringType(), True),
+            StructField("billToAddressId", StringType(), True),
+            StructField("shipToAddressId", StringType(), True),
+            StructField("shipFromAddressId", StringType(), True),
+            # ``addresses`` (like ``billLines`` and ``vendorDocumentAttachment``)
+            # is only returned when requested via the ``include`` table option.
             StructField("addresses", ArrayType(ADDRESS_SCHEMA, True), True),
             # include-only relation objects (JSON strings; null unless requested
             # through the ``include`` table option).
@@ -1172,8 +1210,10 @@ def register_lakeflow_source(spark):
 
         def _fetch_bill(self, bill_id: str, include: list[str]) -> dict:
             path = BILL_PATH.format(bill_id=quote(bill_id, safe=""))
-            # A list value makes requests repeat the key: include=a&include=b.
-            params = {"include": include} if include else None
+            # The live API only honours a single comma-separated value
+            # (include=a,b); the repeated-key form (include=a&include=b) is
+            # accepted with HTTP 200 but silently ignored.
+            params = {"include": ",".join(include)} if include else None
             resp = self._client.request("GET", path, params=params)
 
             if resp.status_code == 404:

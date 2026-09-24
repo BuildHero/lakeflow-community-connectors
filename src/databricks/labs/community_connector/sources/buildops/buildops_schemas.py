@@ -12,10 +12,15 @@ Type choices worth calling out (see "Known Quirks" in the API doc):
   epoch **millis**. Both are kept as raw ``LongType`` epochs rather than
   ``TimestampType`` so a unit mismatch on real data cannot fail parsing or
   silently produce dates in the year 50000.
-* ``audit.lastUpdatedDateTime`` is typed ``string`` in the spec but carries a
-  numeric millis example, so it is ``StringType`` (accepts either shape).
-* ISO-8601 audit dates (``createdDate`` etc.) are ``StringType``: their exact
-  live format (fractional seconds, offsets) is unverified.
+  Verified live (2026-09-24): the dev API accepts and echoes 10-digit epoch
+  seconds for ``dueDate`` / ``postingDate`` / ``issuedBy``, and the audit
+  ``*DateTime`` fields are 13-digit epoch millis.
+* ``audit.lastUpdatedDateTime`` is typed ``string`` in the OpenAPI spec, but the
+  live API returns a JSON integer (epoch millis), so it is ``LongType`` like
+  ``createdDateTime`` (the framework's integer parser also accepts a numeric
+  string, should the documented shape ever appear).
+* ISO-8601 audit dates (``createdDate`` etc.) are ``StringType``; live they
+  are always null.
 * Objects whose schemas are not documented -- the ``include``-only relation
   objects (``vendor``, ``job``, ...), ``UserAuditInfo`` (``audit.createdBy``
   etc.), ``EquipmentDto`` (an empty ``{}`` schema in the spec) and
@@ -60,7 +65,15 @@ DEFAULT_TOKEN_TTL_SECONDS = 86400
 # ---------------------------------------------------------------------------
 
 # Values accepted by the ``include`` query parameter of GET /v2/bills/{billId}.
+# The live API expects ONE comma-separated value (``include=vendor,job``); the
+# repeated-key form (``include=vendor&include=job``) is silently ignored.
+# Verified live: besides the 12 documented relations, ``billLines``,
+# ``addresses`` and ``vendorDocumentAttachment`` are also include-gated -- GET
+# omits those keys entirely unless they are requested. Unknown values -> 400.
 BILL_INCLUDE_VALUES = (
+    "billLines",
+    "addresses",
+    "vendorDocumentAttachment",
     "purchaseOrder",
     "purchaseOrderReceipt",
     "vendor",
@@ -88,7 +101,7 @@ AUDIT_INFO_SCHEMA = StructType(
         StructField("createdDateTime", LongType(), True),
         StructField("lastUpdatedBy", StringType(), True),
         StructField("lastUpdatedDate", StringType(), True),
-        StructField("lastUpdatedDateTime", StringType(), True),
+        StructField("lastUpdatedDateTime", LongType(), True),
         StructField("deletedBy", StringType(), True),
         StructField("deletedDate", StringType(), True),
         StructField("deletedDateTime", LongType(), True),
@@ -242,6 +255,36 @@ BILLS_SCHEMA = StructType(
         StructField("status", StringType(), True),
         StructField("createdByEmployeeId", StringType(), True),
         StructField("isCreatedFromMobile", BooleanType(), True),
+        # Fields returned by the live API but absent from the documented
+        # PublicBillResponseDto (observed 2026-09-24 on the dev tenant). Types
+        # follow the observed values; fields only ever seen as null follow
+        # their CreateBillDto counterpart / naming. ``taxAmountOverridden`` is
+        # a StringType because its type could not be observed (always null)
+        # and a string column is lossless for either a flag or an amount.
+        StructField("uniqueBillNumber", StringType(), True),
+        StructField("accountingRefId", StringType(), True),
+        StructField("isStandalone", BooleanType(), True),
+        StructField("totalAmountPreTax", DoubleType(), True),
+        StructField("taxRegionId", StringType(), True),
+        StructField("isUseTaxable", BooleanType(), True),
+        StructField("useTaxTotal", DoubleType(), True),
+        StructField("taxAmountOverridden", StringType(), True),
+        StructField("isReceiptBound", BooleanType(), True),
+        StructField("vendorDocumentAttachmentId", StringType(), True),
+        StructField("amountDue", DoubleType(), True),
+        StructField("isRetainageApplicable", BooleanType(), True),
+        StructField("isRetainageBill", BooleanType(), True),
+        StructField("defaultRetainagePercent", DoubleType(), True),
+        StructField("totalRetainageAmount", DoubleType(), True),
+        StructField("retainageAmountUnbilled", DoubleType(), True),
+        StructField("parentBillId", StringType(), True),
+        StructField("vendorLocationId", StringType(), True),
+        StructField("vendorContactId", StringType(), True),
+        StructField("billToAddressId", StringType(), True),
+        StructField("shipToAddressId", StringType(), True),
+        StructField("shipFromAddressId", StringType(), True),
+        # ``addresses`` (like ``billLines`` and ``vendorDocumentAttachment``)
+        # is only returned when requested via the ``include`` table option.
         StructField("addresses", ArrayType(ADDRESS_SCHEMA, True), True),
         # include-only relation objects (JSON strings; null unless requested
         # through the ``include`` table option).

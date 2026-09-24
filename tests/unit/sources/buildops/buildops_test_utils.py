@@ -95,6 +95,10 @@ class LakeflowConnectWriteTestUtils(_BaseWriteTestUtils):
         for _ in range(number_of_rows):
             tag = uuid.uuid4().hex[:12]
             payload = {
+                # Client-supplied id (CreateBillDto.id, honoured by the live
+                # API): lets the live spec validator's simulated POST create
+                # the same id, so the follow-up GET validates against it.
+                "id": str(uuid.uuid4()),
                 "vendorId": self._vendor_id,
                 "departmentId": self._department_id,
                 "description": f"lakeflow_test_bill_{tag}",

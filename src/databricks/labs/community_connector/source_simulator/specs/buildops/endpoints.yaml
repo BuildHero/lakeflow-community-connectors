@@ -6,13 +6,20 @@
 #   A custom handler returns a stub bearer token so no auth corpus file is
 #   needed.
 # * ``read_table("bills")`` issues one GET /v2/bills/{billId} per id in the
-#   ``bill_ids`` table option (repeatable ``include=`` query param). The
-#   declarative spec cannot look a record up by path parameter, so a custom
-#   handler serves the matching record from the ``bills`` corpus and returns
-#   404 for unknown ids (the connector must raise on those).
+#   ``bill_ids`` table option, with an optional single comma-separated
+#   ``include=a,b`` query param. The declarative spec cannot look a record up
+#   by path parameter, so a custom handler serves the matching record from
+#   the ``bills`` corpus and returns 404 for unknown ids (the connector must
+#   raise on those).
+# * Live-validated (2026-09-24): ``billLines``, ``addresses``,
+#   ``vendorDocumentAttachment`` and the 12 relation objects are include-gated
+#   -- the key is absent unless requested. The repeated-key form
+#   ``include=a&include=b`` is silently ignored and unknown values return 400;
+#   the handler mirrors all three behaviours. Corpus records carry every key.
 # * Write-back test utils create bills via POST /v2/bills. The handler echoes
-#   the created bill (201) and appends it to the in-memory ``bills`` corpus,
-#   so a subsequent GET by id finds it.
+#   the created bill (201, embedding billLines / vendor / purchaseOrder like
+#   the live API) and appends it to the in-memory ``bills`` corpus, so a
+#   subsequent GET by id finds it. DELETE returns 204 with an empty body.
 #
 # There is no list endpoint and no pagination anywhere in this API surface.
 

@@ -12,7 +12,10 @@ Connection options:
 Table options for ``bills``:
     bill_ids (required): comma-separated bill UUIDs.
     include (optional): comma-separated relation names to embed (see
-        ``BILL_INCLUDE_VALUES``); each becomes a JSON-string column.
+        ``BILL_INCLUDE_VALUES``). ``billLines``, ``addresses`` and
+        ``vendorDocumentAttachment`` populate their typed columns (the API
+        omits them otherwise); every other relation becomes a JSON-string
+        column.
 """
 
 import json
@@ -171,8 +174,10 @@ class BuildOpsLakeflowConnect(LakeflowConnect):
 
     def _fetch_bill(self, bill_id: str, include: list[str]) -> dict:
         path = BILL_PATH.format(bill_id=quote(bill_id, safe=""))
-        # A list value makes requests repeat the key: include=a&include=b.
-        params = {"include": include} if include else None
+        # The live API only honours a single comma-separated value
+        # (include=a,b); the repeated-key form (include=a&include=b) is
+        # accepted with HTTP 200 but silently ignored.
+        params = {"include": ",".join(include)} if include else None
         resp = self._client.request("GET", path, params=params)
 
         if resp.status_code == 404:

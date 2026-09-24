@@ -546,6 +546,39 @@ implementation; `DELETE` is useful for cleaning up test fixtures created via
 
 ### Known Quirks
 
+**Verified against the live dev API (2026-09-24)** -- these supersede the
+"assumed / TBD" notes below where they conflict:
+
+- **`include` serialization**: the API honours only a single comma-separated
+  value (`include=vendor,department`). The repeated-key form
+  (`include=vendor&include=department`) returns HTTP 200 but embeds nothing.
+  Unknown values return HTTP 400 `BadRequestException`
+  (`Property "x" is not a valid property`).
+- **Include-gated keys**: besides the 12 documented relations, `billLines`,
+  `addresses` and `vendorDocumentAttachment` are also accepted `include`
+  values, and GET omits these keys entirely unless requested (the documented
+  "required" `billLines` is absent from a plain GET). POST responses embed
+  `billLines`, `vendor` and `purchaseOrder`.
+- **Undocumented response fields** (present on every GET): `uniqueBillNumber`,
+  `accountingRefId`, `isStandalone`, `totalAmountPreTax`, `taxRegionId`,
+  `isUseTaxable`, `useTaxTotal`, `taxAmountOverridden`, `isReceiptBound`,
+  `vendorDocumentAttachmentId`, `amountDue`, `isRetainageApplicable`,
+  `isRetainageBill`, `defaultRetainagePercent`, `totalRetainageAmount`,
+  `retainageAmountUnbilled`, `parentBillId`, `vendorLocationId`,
+  `vendorContactId`, `billToAddressId`, `shipToAddressId`, `shipFromAddressId`.
+- **Timestamps**: `audit.createdDateTime` / `lastUpdatedDateTime` are JSON
+  integers (13-digit epoch millis) -- `lastUpdatedDateTime` is NOT a string
+  live. `audit.*Date` ISO fields are null. `audit.*By` are
+  `{"username": ...}` objects. Create accepts and echoes 10-digit epoch
+  seconds for `dueDate` / `postingDate` / `issuedBy`; `transactionDate` is
+  dropped on create (server-managed, null on new bills).
+- **Token**: `expires_in` is `10800` (3h), `token_type` is `bearer`.
+- **Create / delete**: `POST /v2/bills` returns 201 and honours a
+  client-supplied `id`; a bill line requires `lineNumber` and a `productId`
+  UUID. `DELETE /v2/bills/{billId}` returns 204 with an empty body, after
+  which GET returns 404 `NotFoundException` (`Bill not found`).
+
+
 - **No list endpoint** for bills — `bills` must be read by id
   (`bill_ids` connector option), not paginated. See "Object List" section.
 - **`AddressDto` example payload mismatch**: the example blocks attached to

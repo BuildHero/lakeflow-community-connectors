@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "endpoints": [
+    {
+      "method": "POST",
+      "url": "https://public-api.dev.buildops.com/v1/auth/token",
+      "count": 3,
+      "param_shapes": [
+        []
+      ]
+    },
+    {
+      "method": "POST",
+      "url": "https://public-api.dev.buildops.com/v2/bills",
+      "count": 2,
+      "param_shapes": [
+        []
+      ]
+    },
+    {
+      "method": "GET",
+      "url": "https://public-api.dev.buildops.com/v2/bills/355d6063-5bc2-4f39-8629-1de2a9c15b5b",
+      "count": 4,
+      "param_shapes": [
+        []
+      ]
+    },
+    {
+      "method": "DELETE",
+      "url": "https://public-api.dev.buildops.com/v2/bills/67c3b091-215f-4432-95c2-d8041fb8757d",
+      "count": 1,
+      "param_shapes": [
+        []
+      ]
+    },
+    {
+      "method": "GET",
+      "url": "https://public-api.dev.buildops.com/v2/bills/67c3b091-215f-4432-95c2-d8041fb8757d",
+      "count": 1,
+      "param_shapes": [
+        []
+      ]
+    },
+    {
+      "method": "DELETE",
+      "url": "https://public-api.dev.buildops.com/v2/bills/d51c0486-7e54-4aa6-a7f5-85e62987beee",
+      "count": 1,
+      "param_shapes": [
+        []
+      ]
+    },
+    {
+      "method": "GET",
+      "url": "https://public-api.dev.buildops.com/v2/bills/d51c0486-7e54-4aa6-a7f5-85e62987beee",
+      "count": 2,
+      "param_shapes": [
+        []
+      ]
+    }
+  ]
+}

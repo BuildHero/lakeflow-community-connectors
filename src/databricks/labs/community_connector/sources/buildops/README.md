@@ -2,7 +2,7 @@
 
 This documentation describes how to configure and use the **BuildOps** Lakeflow community connector to ingest Accounts Payable **bills** from the BuildOps public REST API into Databricks.
 
-BuildOps is a cloud-based field-service and job-costing platform for commercial contractors. The connector reads bill records, including their line items, addresses, vendor document attachment, and optionally the related records (vendor, job, project, purchase order, and so on) that BuildOps can embed in a bill response.
+BuildOps is a cloud-based field-service and job-costing platform for commercial contractors. The connector reads bill records and, on request through the `include` table option, their line items, addresses, vendor document attachment, and related records (vendor, job, project, purchase order, and so on) that BuildOps can embed in a bill response.
 
 > **Important:** The BuildOps public API has no endpoint that lists bills. It can only return a single bill by its ID. Because of this, **you must tell the connector which bills to read** by setting the `bill_ids` table option. The connector cannot discover new bills on its own. See [How the `bills` table works](#how-the-bills-table-works).
 
@@ -107,13 +107,13 @@ Each value in `bill_ids` is a BuildOps bill `id` (a UUID such as `2cdc8ab1-6d50-
 
 ### Schema highlights
 
-The schema is static and follows the BuildOps `PublicBillResponseDto` definition. Columns keep the BuildOps camelCase field names.
+The schema is static and follows the BuildOps `PublicBillResponseDto` definition, plus the fields the live API returns beyond that definition (for example `uniqueBillNumber`, `totalAmountPreTax`, `amountDue`, the retainage fields, and the vendor location / contact / address IDs). Columns keep the BuildOps camelCase field names.
 
 - **Identifiers and foreign keys**: `id`, `tenantId`, `vendorId`, `jobId`, `projectId`, `departmentId`, `purchaseOrderId`, `purchaseOrderReceiptId`, `paymentTermId`, `taxRateId`, `orderedById`, `projectManagerId`, `assignedToId`, `approvalNoteById`, `createdByEmployeeId`, `tenantCompanyId`. All are UUID strings.
 - **Status fields**: `status` (`Exported`, `Pending`, `Posted`, `Void`, `Closed`, `Draft`, `Bypassed`), `approvalStatus` (`Unreviewed`, `Approved`, `Review Needed`, `Rejected`), `invoicedStatus`, and `syncStatus` (`Syncing`, `InSync`, `SyncFailed`, `Bypassed`). They are stored as plain strings.
-- **`billLines`**: an array of structs, one per line item. Each line carries its own `id`, quantities, costs, tax amounts, job-costing references, and `audit` struct. It also has a nested `purchaseOrderReceiptLineBillLines` array of quantity-billed reconciliation records.
-- **`addresses`**: an array of structs (`id`, `addressLine1`, `addressLine2`, `city`, `state`, `zipcode`, `addressType`). `addressLine1` is not in the BuildOps schema definition. The connector includes it in case BuildOps returns it, and it is null otherwise.
-- **`vendorDocumentAttachment`**: a struct with the attached vendor document's file name, URL, size, and flags.
+- **`billLines`**: an array of structs, one per line item. BuildOps only returns it when `include` lists `billLines`; otherwise the column is null. Each line carries its own `id`, quantities, costs, tax amounts, job-costing references, and `audit` struct. It also has a nested `purchaseOrderReceiptLineBillLines` array of quantity-billed reconciliation records.
+- **`addresses`**: an array of structs (`id`, `addressLine1`, `addressLine2`, `city`, `state`, `zipcode`, `addressType`). `addressLine1` is not in the BuildOps schema definition. The connector includes it in case BuildOps returns it, and it is null otherwise. Returned only when `include` lists `addresses`.
+- **`vendorDocumentAttachment`**: a struct with the attached vendor document's file name, URL, size, and flags. Returned only when `include` lists `vendorDocumentAttachment`; `vendorDocumentAttachmentId` is always returned.
 - **`audit`**: a struct with created, last-updated, and deleted dates and user references. See [Data Type Mapping](#data-type-mapping) for the timestamp formats.
 - **`issuedBy`** holds a **date** (the date the bill must be issued by), not a person.
 - **Related-record columns**: `purchaseOrder`, `purchaseOrderReceipt`, `vendor`, `job`, `project`, `department`, `orderedBy`, `projectManager`, `assignedTo`, `approvalNoteBy`, `paymentTerm`, and `taxRate`. These are **JSON-string** columns. Each is null unless you request that relation through the `include` table option.
@@ -149,12 +149,15 @@ The `bills` table supports these options:
 | Option | Required | Description | Example |
 |---|---|---|---|
 | `bill_ids` | **Yes** | Comma-separated list of BuildOps bill UUIDs to read. The connector trims whitespace around each value and reads a repeated ID only once. If this option is missing or empty, the pipeline fails with an error that explains why it is required. | `2cdc8ab1-6d50-49cc-ba14-54e4ac7ec231, 3fa85f64-5717-4562-b3fc-2c963f66afa6` |
-| `include` | No | Comma-separated list of related records to embed in each bill. The same list applies to every bill in `bill_ids`. Values are case-insensitive and duplicates are ignored. An unrecognized value fails the pipeline with an error that lists the allowed values. | `vendor,job,paymentTerm` |
+| `include` | No | Comma-separated list of nested collections and related records to embed in each bill. The connector sends it to BuildOps as a single comma-separated `include` value. The same list applies to every bill in `bill_ids`. Values are case-insensitive and duplicates are ignored. An unrecognized value fails the pipeline with an error that lists the allowed values. | `vendor,job,paymentTerm` |
 
 **Allowed `include` values:**
 
 | `include` value | Populates column | Related record |
 |---|---|---|
+| `billLines` | `billLines` | The bill's line items (typed `ARRAY<STRUCT>`) |
+| `addresses` | `addresses` | The bill's addresses (typed `ARRAY<STRUCT>`) |
+| `vendorDocumentAttachment` | `vendorDocumentAttachment` | The attached vendor document (typed `STRUCT`) |
 | `purchaseOrder` | `purchaseOrder` | The bill's purchase order |
 | `purchaseOrderReceipt` | `purchaseOrderReceipt` | The purchase order receipt |
 | `vendor` | `vendor` | The vendor |
@@ -168,7 +171,7 @@ The `bills` table supports these options:
 | `paymentTerm` | `paymentTerm` | The payment term |
 | `taxRate` | `taxRate` | The tax rate |
 
-Each included relation is stored as a **JSON string** in the column with the same name. Its fields are not expanded into typed columns. Parse it downstream with `from_json` (for example, `from_json(vendor, schema_of_json('<sample vendor JSON>'))`) or with the `:` path syntax (for example, `vendor:name`). Relations you do not request stay null. Every relation you include makes each bill response larger, so request only the relations you need.
+`billLines`, `addresses`, and `vendorDocumentAttachment` fill their typed columns. Every other included relation is stored as a **JSON string** in the column with the same name. Its fields are not expanded into typed columns. Parse it downstream with `from_json` (for example, `from_json(vendor, schema_of_json('<sample vendor JSON>'))`) or with the `:` path syntax (for example, `vendor:name`). Relations you do not request stay null. Every relation you include makes each bill response larger, so request only the relations you need.
 
 ## Data Type Mapping
 
@@ -180,14 +183,13 @@ Each included relation is stored as a **JSON string** in the column with the sam
 | integer | `version`, `billLines[].lineNumber` | `BIGINT` | |
 | boolean | `isImported`, `isCreatedFromMobile`, `billLines[].taxable` | `BOOLEAN` | |
 | Unix timestamp, **seconds** | `transactionDate`, `issuedBy`, `postingDate`, `dueDate`, `approvalNoteDateTime` | `BIGINT` (raw epoch value) | Not converted to `TIMESTAMP`. Convert with `timestamp_seconds(transactionDate)`. |
-| Unix timestamp, **milliseconds** | `audit.createdDateTime`, `audit.deletedDateTime` | `BIGINT` (raw epoch value) | Convert with `timestamp_millis(audit.createdDateTime)`. |
-| Unix timestamp typed as string | `audit.lastUpdatedDateTime` | `STRING` | BuildOps declares this field as a string even though its value is a millisecond epoch. Convert with `timestamp_millis(CAST(audit.lastUpdatedDateTime AS BIGINT))`. |
-| ISO-8601 date-time string | `audit.createdDate`, `audit.lastUpdatedDate`, `audit.deletedDate` | `STRING` | For example `2023-05-30T13:16:46Z`. Convert with `to_timestamp(...)`. |
+| Unix timestamp, **milliseconds** | `audit.createdDateTime`, `audit.lastUpdatedDateTime`, `audit.deletedDateTime` | `BIGINT` (raw epoch value) | Convert with `timestamp_millis(audit.createdDateTime)`. BuildOps documents `lastUpdatedDateTime` as a string, but the API returns a number. |
+| ISO-8601 date-time string | `audit.createdDate`, `audit.lastUpdatedDate`, `audit.deletedDate` | `STRING` | For example `2023-05-30T13:16:46Z`. Convert with `to_timestamp(...)`. Often null; prefer the `*DateTime` epoch fields. |
 | object (documented) | `audit`, `vendorDocumentAttachment` | `STRUCT` | Nested objects are kept as structs. An empty object is stored as null. |
 | array of objects | `billLines`, `addresses`, `billLines[].purchaseOrderReceiptLineBillLines` | `ARRAY<STRUCT>` | |
 | object (undocumented shape) | `include` relation columns, `audit.createdBy` / `lastUpdatedBy` / `deletedBy`, `billLines[].equipment`, `billLines[].purchaseOrderReceiptLineBillLines[].purchaseOrderReceiptLine` | `STRING` (JSON) | BuildOps does not document these objects' fields, so the connector stores each one as a JSON string. Parse it downstream. |
 
-**Why timestamps are kept as raw numbers:** the BuildOps API mixes timestamp units. Bill-level dates are documented as epoch **seconds**, while the audit dates are epoch **milliseconds**, and `audit.lastUpdatedDateTime` is typed as a string. The connector keeps these values exactly as BuildOps returns them, so a unit mismatch in live data cannot break ingestion or produce wrong dates silently. Before you convert a column, check that its magnitude is what you expect: about 10 digits for seconds, about 13 digits for milliseconds.
+**Why timestamps are kept as raw numbers:** the BuildOps API mixes timestamp units. Bill-level dates are epoch **seconds**, while the audit dates are epoch **milliseconds**. The connector keeps these values exactly as BuildOps returns them, so a unit mismatch in live data cannot break ingestion or produce wrong dates silently. Before you convert a column, check that its magnitude is what you expect: about 10 digits for seconds, about 13 digits for milliseconds.
 
 ## How to Run
 
@@ -249,7 +251,7 @@ Run the pipeline with your standard Lakeflow / Databricks orchestration, for exa
 - **HTTP 404 (not found) on a bill**: the ID in `bill_ids` does not exist in this tenant and environment. The bill may have been deleted, it may belong to another tenant, or the ID may be wrong or be a bill number instead of a UUID. Remove or correct the ID and run the pipeline again.
 - **`requires the 'bill_ids' table option`**: `bill_ids` is missing from `table_configuration`, or `externalOptionsAllowList` on the connection does not include `bill_ids`, so the option is dropped before it reaches the connector.
 - **`Invalid value(s) for the 'include' table option`**: one of the `include` values is not in the allowed list above. Check the spelling. Values are case-insensitive.
-- **Related-record column is null**: that relation was not listed in `include`, `include` is not in `externalOptionsAllowList`, or the bill has no such related record.
+- **Related-record, `billLines`, `addresses`, or `vendorDocumentAttachment` column is null**: that value was not listed in `include`, `include` is not in `externalOptionsAllowList`, or the bill has no such related record.
 - **Unexpected dates after conversion**: check whether the column is in seconds or milliseconds (see [Data Type Mapping](#data-type-mapping)) and use `timestamp_seconds` or `timestamp_millis` to match.
 
 ### Known Limitations
@@ -257,7 +259,7 @@ Run the pipeline with your standard Lakeflow / Databricks orchestration, for exa
 - **No list or discovery endpoint**: bills are read only by ID, so `bill_ids` is required and new bills are not picked up automatically.
 - **No incremental sync**: the BuildOps API has no "changed since" filter for bills, so every run is a full snapshot of the configured IDs. To track changes yourself, compare `audit.lastUpdatedDate` / `audit.lastUpdatedDateTime` or `version` between runs, or use `SCD_TYPE_2`.
 - **No deletes feed**: deletions in BuildOps cannot be detected directly. A deleted bill that is still in `bill_ids` causes a 404 and the run fails.
-- **Timestamp unit quirks**: bill-level dates are epoch seconds, audit dates are epoch milliseconds, and `audit.lastUpdatedDateTime` is a string. All of them are kept as raw values (see [Data Type Mapping](#data-type-mapping)).
+- **Timestamp unit quirks**: bill-level dates are epoch seconds and audit dates are epoch milliseconds. All of them are kept as raw values (see [Data Type Mapping](#data-type-mapping)).
 - **Undocumented nested objects**: related records from `include`, audit user references, and equipment are stored as JSON strings, not typed structs, because BuildOps does not document their fields.
 - **Single table**: only `bills` is supported. Other BuildOps objects, such as purchase orders, vendors, and jobs, are available only as JSON embedded through `include`.
 
