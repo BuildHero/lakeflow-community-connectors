@@ -1,0 +1,51 @@
+# BuildOps public API (Inventory domain -- bills only).
+#
+# Connector flow:
+# * First data call triggers the client-credentials exchange:
+#     POST /v1/auth/token  {"clientId": ..., "clientSecret": ...}
+#   A custom handler returns a stub bearer token so no auth corpus file is
+#   needed.
+# * ``read_table("bills")`` issues one GET /v2/bills/{billId} per id in the
+#   ``bill_ids`` table option (repeatable ``include=`` query param). The
+#   declarative spec cannot look a record up by path parameter, so a custom
+#   handler serves the matching record from the ``bills`` corpus and returns
+#   404 for unknown ids (the connector must raise on those).
+# * Write-back test utils create bills via POST /v2/bills. The handler echoes
+#   the created bill (201) and appends it to the in-memory ``bills`` corpus,
+#   so a subsequent GET by id finds it.
+#
+# There is no list endpoint and no pagination anywhere in this API surface.
+
+endpoints:
+  - path: /v1/auth/token
+    method: POST
+    handler: databricks.labs.community_connector.source_simulator.specs.buildops.handlers.bills:serve_token
+
+  - path: /v2/bills/{billId}
+    method: GET
+    corpus: bills
+    handler: databricks.labs.community_connector.source_simulator.specs.buildops.handlers.bills:get_bill
+    response:
+      pagination_style: none
+      single_entity: true
+    params:
+      include: {role: ignore}
+
+  - path: /v2/bills
+    method: POST
+    corpus: bills
+    handler: databricks.labs.community_connector.source_simulator.specs.buildops.handlers.bills:create_bill
+    response:
+      pagination_style: none
+      single_entity: true
+      expected_status_codes: [200, 201]
+
+  # Used only by the write-back test utils' optional cleanup().
+  - path: /v2/bills/{billId}
+    method: DELETE
+    corpus: bills
+    handler: databricks.labs.community_connector.source_simulator.specs.buildops.handlers.bills:delete_bill
+    response:
+      pagination_style: none
+      single_entity: true
+      expected_status_codes: [200, 204]

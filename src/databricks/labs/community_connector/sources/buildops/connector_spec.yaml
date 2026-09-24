@@ -1,0 +1,44 @@
+# BuildOps Community Connector Spec
+# This file defines the specification for the connector including
+# connection parameters and allowlist options.
+
+# ============================================================================
+# Connection Parameters
+# These are provided when creating the Unity Catalog connection.
+# ============================================================================
+display_name: BuildOps
+connection:
+  parameters:
+    - name: client_id
+      type: string
+      required: true
+      secret: true
+      description: >
+        OAuth 2.0 client ID for the BuildOps application.
+    - name: client_secret
+      type: string
+      required: true
+      secret: true
+      description: >
+        OAuth 2.0 client secret issued alongside the client_id.
+    - name: tenant_id
+      type: string
+      required: true
+      description: >
+        BuildOps tenant UUID to scope the connection to a specific tenant.
+    - name: base_url
+      type: string
+      required: false
+      description: >
+        Base URL for the BuildOps API. Defaults to the development server
+        (https://public-api.dev.buildops.com). Set to
+        https://public-api.live.buildops.com for production.
+
+# ============================================================================
+# External Options Allowlist
+# These table-specific options must be included in the externalOptionsAllowList
+# parameter of the UC connection to allow them to be passed through.
+# Use a comma-separated string of option names.
+# If no table-specific options are needed, set to empty string or omit.
+# ============================================================================
+external_options_allowlist: "bill_ids,include"
