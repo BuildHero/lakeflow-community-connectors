@@ -213,8 +213,8 @@ Because `lookup` output for these specific objects was not fully retrievable fie
 |---|---|---|
 | `RECORDNO` | integer | **Primary key.** |
 | `CUSTOMERID` / `CUSTOMERNAME` | string | FK to `CUSTOMER`. |
-| `INVOICENO` | string | Invoice number (business document number; not guaranteed globally unique — `RECORDNO` is the true PK). |
-| `DATECREATED`, `DATEPOSTED`, `DATEDUE` | date | Lifecycle dates. |
+| `DOCNUMBER` | string | Invoice number (business document number; not guaranteed globally unique — `RECORDNO` is the true PK). **Not** `INVOICENO`: a live `lookup`/`query` against `ARINVOICE` confirmed `INVOICENO`/`DATECREATED`/`DATEPOSTED`/`DATEDUE` are documented but not queryable (`errorno XL03000006`, "The following fields cannot be queried"); `DOCNUMBER` is the real field, matching the naming already used on `APBILL` below. |
+| `WHENPOSTED`, `WHENDUE` | date | Lifecycle dates (see `DOCNUMBER` note above). |
 | `WHENCREATED` | date | Record creation date. |
 | `WHENMODIFIED` | timestamp | **Cursor field for incremental sync.** |
 | `TOTALENTERED` / `AMOUNT` | decimal/currency | Total invoice amount. |
@@ -303,7 +303,7 @@ Primary keys are not returned by a dedicated "get primary key" call; they are de
 |---|---|---|
 | `customers` | `CUSTOMER.RECORDNO` | `CUSTOMERID` |
 | `vendors` | `VENDOR.RECORDNO` | `VENDORID` |
-| `invoices` | `ARINVOICE.RECORDNO` (header) / `ARINVOICEITEM.RECORDNO` (line) | `INVOICENO` (not unique) |
+| `invoices` | `ARINVOICE.RECORDNO` (header) / `ARINVOICEITEM.RECORDNO` (line) | `DOCNUMBER` (not unique) |
 | `bills` | `APBILL.RECORDNO` (header) / `APBILLITEM.RECORDNO` (line) | `RECORDID`/`DOCNUMBER` (not unique) |
 | `gl_entries` | `GLDETAIL.RECORDNO` | `GLENTRYKEY` (FK, not unique per se) |
 

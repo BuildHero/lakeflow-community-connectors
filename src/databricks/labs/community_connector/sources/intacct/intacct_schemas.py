@@ -114,10 +114,15 @@ ARINVOICE_FIELDS = [
     "RECORDNO",
     "CUSTOMERID",
     "CUSTOMERNAME",
-    "INVOICENO",
-    "DATECREATED",
-    "DATEPOSTED",
-    "DATEDUE",
+    # Live `lookup` on ARINVOICE confirmed the doc's field names here were
+    # wrong: INVOICENO/DATECREATED/DATEPOSTED/DATEDUE are not queryable on
+    # this object -- a live `query` request fails with "The following
+    # fields cannot be queried". The real fields (verified live) are
+    # DOCNUMBER (business document number) and WHENPOSTED/WHENDUE, matching
+    # the naming convention already used on APBILL.
+    "DOCNUMBER",
+    "WHENPOSTED",
+    "WHENDUE",
     "WHENCREATED",
     "WHENMODIFIED",
     "TOTALENTERED",
@@ -231,10 +236,9 @@ TABLE_SCHEMAS: dict[str, StructType] = {
             _field("RECORDNO", LongType(), nullable=False),
             _field("CUSTOMERID", StringType()),
             _field("CUSTOMERNAME", StringType()),
-            _field("INVOICENO", StringType()),
-            _field("DATECREATED", DateType()),
-            _field("DATEPOSTED", DateType()),
-            _field("DATEDUE", DateType()),
+            _field("DOCNUMBER", StringType()),
+            _field("WHENPOSTED", DateType()),
+            _field("WHENDUE", DateType()),
             _field("WHENCREATED", DateType()),
             _field("WHENMODIFIED", TimestampType()),
             _field("TOTALENTERED", _DECIMAL),
@@ -268,7 +272,13 @@ TABLE_SCHEMAS: dict[str, StructType] = {
     ),
     "gl_entries": StructType(
         [
-            _field("RECORDNO", LongType(), nullable=False),
+            # Unlike the other 4 objects, GLDETAIL.RECORDNO is NOT a clean
+            # auto-incrementing integer -- live data shows composite string
+            # values like "7-35---accrual" (batchkey-entrykey---bookid),
+            # consistent with the doc's note that GLDETAIL is "a view, not
+            # a table". GLENTRYKEY (confirmed live as a clean integer, e.g.
+            # "35") is the real numeric FK back to GLENTRY.RECORDNO.
+            _field("RECORDNO", StringType(), nullable=False),
             _field("GLENTRYKEY", LongType()),
             _field("ACCOUNTNO", StringType()),
             _field("ACCOUNTTITLE", StringType()),

@@ -259,7 +259,8 @@ def parse_response(xml_text: str) -> dict:
 
 
 def _extract_error(el: ET.Element) -> str:
-    parts = [t.text for t in el.iter() if t.tag in ("description", "description2", "correction") and t.text]
+    error_tags = ("description", "description2", "correction")
+    parts = [t.text for t in el.iter() if t.tag in error_tags and t.text]
     if parts:
         return " | ".join(parts)
     err = el.find(".//error")
