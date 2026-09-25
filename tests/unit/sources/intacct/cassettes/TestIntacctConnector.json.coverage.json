@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "endpoints": [
+    {
+      "method": "POST",
+      "url": "https://api.intacct.com/ia/xml/xmlgw.phtml",
+      "count": 71,
+      "param_shapes": [
+        []
+      ]
+    }
+  ]
+}

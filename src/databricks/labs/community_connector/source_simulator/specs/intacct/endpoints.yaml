@@ -1,0 +1,34 @@
+# Sage Intacct XML Gateway (xmlgw.phtml) -- a single-endpoint, XML-RPC-style
+# API: every function (getAPISession, query, ...) is an HTTP POST of an XML
+# envelope to the *same* URL, with the function name and its arguments
+# embedded in the request body rather than expressed via the URL path or
+# query string. This doesn't fit the simulator's per-param `role:` model
+# (built around URL query params on GET-style REST/OData endpoints), so the
+# single endpoint below is served entirely by a custom handler that parses
+# the XML body and dispatches on the embedded function name.
+#
+# Functions the connector actually calls (see intacct.py):
+#   - getAPISession -- called once at startup; cached for later calls.
+#   - query         -- the only data-reading function used, for all 5
+#                      objects (CUSTOMER, VENDOR, ARINVOICE, APBILL,
+#                      GLDETAIL). Filtered by a WHENMODIFIED [since, until)
+#                      range, paginated via <pagesize>/<offset>.
+#
+# See handlers/xmlgw.py for the full dispatch logic, including the manual
+# future-record synthesis for cap-validation tests (the declarative
+# `synthesize_future_records` directive doesn't fire for handler-based
+# endpoints, so it can't be declared here -- it's implemented directly in
+# the handler instead).
+#
+# `corpus` is intentionally omitted at the endpoint level: the handler
+# picks the corpus table dynamically from the `<object>` name embedded in
+# each request body (CUSTOMER -> corpus/customers.json, VENDOR ->
+# corpus/vendors.json, ARINVOICE -> corpus/invoices.json, APBILL ->
+# corpus/bills.json, GLDETAIL -> corpus/gl_entries.json), matching the
+# table names connector-tester's corpus_from_schema tool writes from
+# TABLE_SCHEMAS.
+
+endpoints:
+  - path: "/ia/xml/xmlgw.phtml"
+    method: POST
+    handler: databricks.labs.community_connector.source_simulator.specs.intacct.handlers.xmlgw:serve_xmlgw

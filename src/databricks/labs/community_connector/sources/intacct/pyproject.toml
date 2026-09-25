@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lakeflow-community-connectors-intacct"
+version = "0.1.0"
+description = "Sage Intacct connector for Lakeflow Community Connectors"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0,<3.0",
+    "lakeflow-community-connectors>=0.1.0,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyspark>=4.2.0.dev0",
+    "pytest>=7.0.0,<9.0",
+    "responses>=0.25.0",
+]
+
+[tool.setuptools]
+packages = ["databricks.labs.community_connector.sources.intacct"]
+
+[tool.setuptools.package-dir]
+"databricks.labs.community_connector.sources.intacct" = "."
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.md", "*.yaml"]
+
+# ----- pylint -----
+# Picked up by pylint when linting files under this directory.
+
+[tool.pylint.main]
+# _generated_intacct_python_source.py is built by
+# tools/scripts/merge_python_source.py: it concatenates the connector
+# with several library/interface modules so the source can be deployed
+# as a single file. Those library modules live outside this connector
+# (under src/databricks/labs/community_connector/{interface,libs,…})
+# and per CLAUDE.md must not be modified here. Lint them at their own
+# location, not in their merged copy.
+ignore-patterns = ["_generated_.*\\.py"]

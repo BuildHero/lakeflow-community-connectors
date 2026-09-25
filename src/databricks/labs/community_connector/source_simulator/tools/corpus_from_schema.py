@@ -41,6 +41,7 @@ from pyspark.sql.types import (
     ArrayType,
     BooleanType,
     DataType,
+    DateType,
     DecimalType,
     DoubleType,
     FloatType,
@@ -102,6 +103,7 @@ def write_corpus_from_schemas(
     cursor_field_overrides: Optional[Dict[str, str]] = None,
     primary_key_overrides: Optional[Dict[str, List[str]]] = None,
     seed: int = 42,
+    cursor_base_time: Optional[datetime] = None,
 ) -> List[Path]:
     """Generate one corpus file per table the connector lists.
 
@@ -116,6 +118,11 @@ def write_corpus_from_schemas(
         primary_key_overrides: per-table list of PK fields (overrides
             metadata).
         seed: random seed for determinism across runs.
+        cursor_base_time: see ``generate_records`` — anchors every
+            table's cursor field near this time instead of the fixed
+            2024-01-01 default. Use for connectors that cap reads at an
+            init-time "now" and walk time windows forward from the oldest
+            cursor.
 
     Returns the list of files written.
     """
@@ -153,6 +160,7 @@ def write_corpus_from_schemas(
             cursor_field=cursor_field,
             primary_key_fields=pk_fields or [],
             seed=seed + _str_seed(table),
+            cursor_base_time=cursor_base_time,
         )
         out_path = output_dir / f"{table}.json"
         with open(out_path, "w", encoding="utf-8") as f:
@@ -170,14 +178,23 @@ def generate_records(
     cursor_field: Optional[str] = None,
     primary_key_fields: Sequence[str] = (),
     seed: int = 0,
+    cursor_base_time: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """Synthesize ``count`` records matching ``schema``.
 
     Cursor fields advance monotonically across records (so cursor-based
     pagination terminates in a finite number of steps). Primary key fields
     are unique across the generated records.
+
+    ``cursor_base_time`` anchors the cursor field's first value (defaults
+    to a fixed 2024-01-01 UTC). Connectors that cap reads at an init-time
+    "now" and walk fixed-size time windows forward from the oldest cursor
+    (e.g. a sliding-window CDC strategy) need this anchored close to the
+    current time — otherwise the gap between a fixed historical anchor and
+    wall-clock "now" only grows release over release, and the number of
+    empty windows a test has to walk through to converge grows with it.
     """
-    base_time = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    base_time = cursor_base_time or datetime(2024, 1, 1, tzinfo=timezone.utc)
     cursor_dt = _resolve_field_type(schema, cursor_field) if cursor_field else None
 
     records: List[Dict[str, Any]] = []
@@ -245,6 +262,16 @@ def _gen_value(dt: DataType, rng: random.Random, depth: int) -> Any:
             days=days_ago, seconds=secs
         )
         return ts.isoformat().replace("+00:00", "Z")
+    if isinstance(dt, DateType):
+        # Date-only string ("YYYY-MM-DD", 10 chars) — distinguishable from
+        # a full timestamp by length, which some simulator handlers rely on
+        # to pick a date-only vs datetime wire format (e.g. Intacct's
+        # xmlgw handler). Previously unhandled here, which meant every
+        # DateType column in a schema-bootstrapped corpus came back as
+        # None and failed the "every column populated" invariant.
+        days_ago = rng.randint(0, 30)
+        d = (datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(days=days_ago)).date()
+        return d.isoformat()
     if isinstance(dt, StringType):
         return _gen_string(rng)
     # Unknown — give back something JSON-safe.

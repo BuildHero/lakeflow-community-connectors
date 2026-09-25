@@ -1,0 +1,7 @@
+{
+  "customers": {"window_seconds": "315360000", "max_records_per_batch": "1000", "pagesize": "1000"},
+  "vendors": {"window_seconds": "315360000", "max_records_per_batch": "1000", "pagesize": "1000"},
+  "invoices": {"window_seconds": "315360000", "max_records_per_batch": "1000", "pagesize": "1000"},
+  "bills": {"window_seconds": "315360000", "max_records_per_batch": "1000", "pagesize": "1000"},
+  "gl_entries": {"window_seconds": "315360000", "max_records_per_batch": "1000", "pagesize": "1000"}
+}

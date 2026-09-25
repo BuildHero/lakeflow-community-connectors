@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-25T12:47:37.132200Z",
+  "endpoints": [
+    {
+      "method": "POST",
+      "spec_path": "/ia/xml/xmlgw.phtml",
+      "sample_url": "https://api.intacct.com/ia/xml/xmlgw.phtml",
+      "status": "validated",
+      "calls": 71,
+      "matched": 71,
+      "mismatched": 0,
+      "no_spec": 0,
+      "issues": []
+    }
+  ],
+  "summary": {
+    "endpoints_total": 1,
+    "endpoints_validated": 1,
+    "endpoints_mismatched": 0,
+    "endpoints_missing_spec": 0
+  }
+}
